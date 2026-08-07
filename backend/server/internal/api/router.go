@@ -35,8 +35,8 @@ func NewRouter(
         r.Delete("/users/{id}", HandleDeprovisionUser(database, hub, giteaClient))
         
         // Stubs for future implementation
-        r.Get("/users", HandleListUsers)
-        r.Get("/servers", HandleListServers)
+        r.Get("/users", HandleListUsers(database))
+        r.Get("/servers", HandleListServers(database))
         r.Post("/servers", HandleRegisterServer(database))
     })
 
@@ -65,7 +65,3 @@ func NewRouter(
 
     return r
 }
-
-// Stub handlers for endpoints not yet implemented
-func HandleListUsers(w http.ResponseWriter, r *http.Request) { w.Write([]byte("List Users")) }
-func HandleListServers(w http.ResponseWriter, r *http.Request) { w.Write([]byte("List Servers")) }

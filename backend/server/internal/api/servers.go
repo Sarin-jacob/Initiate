@@ -15,7 +15,7 @@ type RegisterServerRequest struct {
 	PublicKey string `json:"public_key"`
 }
 
-// HandleRegisterServer allows the Admin UI to add new Edge Agents to the network
+// HandleRegisterServer adds a new Edge Agent key to the database
 func HandleRegisterServer(database *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req RegisterServerRequest
@@ -28,7 +28,7 @@ func HandleRegisterServer(database *gorm.DB) http.HandlerFunc {
 			ID:        uuid.New().String(),
 			Name:      req.Name,
 			PublicKey: req.PublicKey,
-			Status:    "OFFLINE", // Will switch to ONLINE when it connects via WS
+			Status:    "OFFLINE", // Switches to ONLINE when it connects via WS
 		}
 
 		if err := database.Create(&server).Error; err != nil {
@@ -43,5 +43,23 @@ func HandleRegisterServer(database *gorm.DB) http.HandlerFunc {
 			"message": "Edge Server registered successfully",
 			"id":      server.ID,
 		})
+	}
+}
+
+// HandleListServers returns all registered Edge Agents and their statuses
+func HandleListServers(database *gorm.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var servers []db.TargetServer
+		if err := database.Find(&servers).Error; err != nil {
+			http.Error(w, "Failed to fetch servers", http.StatusInternalServerError)
+			return
+		}
+
+		if servers == nil {
+			servers = []db.TargetServer{}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(servers)
 	}
 }
