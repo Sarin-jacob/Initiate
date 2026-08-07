@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"gopkg.in/yaml.v3"
@@ -50,71 +51,84 @@ func main() {
 		TLSClientConfig: internal.GetPinnedTLSConfig(config.Server.CertPin),
 	}
 	
-	// Inject the Public Key into the HTTP upgrade request headers
 	headers := http.Header{}
 	headers.Add("X-Agent-Pubkey", pubKey)
-	
-	// Pass the headers into the dialer instead of 'nil'
-	conn, resp, err := dialer.Dial(config.Server.URL, headers)
-	if err != nil {
-		if resp != nil {
-			log.Fatalf("Failed to connect: %v (Status: %s)", err, resp.Status)
-		}
-		log.Fatalf("Failed to connect to Central Server at %s: %v", config.Server.URL, err)
-	}
-	defer conn.Close()
-	log.Println("Connected. Initiating Handshake...")
 
-	// 5. Authenticate
-	hello := WSPayload{Event: "AGENT_HELLO", Payload: map[string]interface{}{"public_key": pubKey}}
-	conn.WriteJSON(hello)
-
-	var challenge WSPayload
-	conn.ReadJSON(&challenge)
-	sig := internal.SignChallenge(privKey, challenge.Nonce)
-	conn.WriteJSON(WSPayload{Event: "CHALLENGE_RESPONSE", Signature: sig})
-
-	var authConfirm WSPayload
-	conn.ReadJSON(&authConfirm)
-	if authConfirm.Event != "AUTHENTICATED" {
-		log.Fatalf("Authentication failed. Server responded: %s", authConfirm.Event)
-	}
-	log.Println("Successfully Authenticated. Listening for tasks...")
-
-	// 6. Execution Loop
+	// --- INFINITE RECONNECT LOOP ---
 	for {
-		var msg WSPayload
-		if err := conn.ReadJSON(&msg); err != nil {
-			log.Println("Connection closed or error:", err)
-			break
-		}
-
-		log.Printf("Received task: %s (ID: %s)", msg.Event, msg.TaskID)
-
-		cmdConf, exists := config.Executor[msg.Event]
-		if !exists {
-			log.Printf("Warning: No executor configured for event %s", msg.Event)
+		log.Printf("Attempting to connect to %s...", config.Server.URL)
+		conn, resp, err := dialer.Dial(config.Server.URL, headers)
+		if err != nil {
+			status := "unknown"
+			if resp != nil {
+				status = resp.Status
+			}
+			log.Printf("Connection failed: %v (Status: %s). Retrying in 5 seconds...", err, status)
+			time.Sleep(5 * time.Second)
 			continue
 		}
 
-		outStr, execErr := internal.ExecuteTask(cmdConf, msg.Payload)
+		log.Println("Connected. Initiating Handshake...")
+
+		// 5. Authenticate
+		conn.WriteJSON(WSPayload{Event: "AGENT_HELLO", Payload: map[string]interface{}{"public_key": pubKey}})
+
+		var challenge WSPayload
+		conn.ReadJSON(&challenge)
+		sig := internal.SignChallenge(privKey, challenge.Nonce)
+		conn.WriteJSON(WSPayload{Event: "CHALLENGE_RESPONSE", Signature: sig})
+
+		var authConfirm WSPayload
+		conn.ReadJSON(&authConfirm)
+		if authConfirm.Event != "AUTHENTICATED" {
+			log.Printf("Authentication failed. Server responded: %s", authConfirm.Event)
+			conn.Close()
+			time.Sleep(5 * time.Second)
+			continue
+		}
 		
-		status := "SUCCESS"
-		errorMsg := ""
-		if execErr != nil {
-			status = "FAILED"
-			errorMsg = execErr.Error()
+		log.Println("Successfully Authenticated. Listening for tasks...")
+
+		// 6. Execution Loop
+		for {
+			var msg WSPayload
+			if err := conn.ReadJSON(&msg); err != nil {
+				log.Println("Connection dropped or error:", err)
+				break // Break inner loop to trigger reconnect
+			}
+
+			log.Printf("Received task: %s (ID: %s)", msg.Event, msg.TaskID)
+
+			cmdConf, exists := config.Executor[msg.Event]
+			if !exists {
+				log.Printf("Warning: No executor configured for event %s", msg.Event)
+				continue
+			}
+
+			outStr, execErr := internal.ExecuteTask(cmdConf, msg.Payload)
+			
+			status := "SUCCESS"
+			errorMsg := ""
+			if execErr != nil {
+				status = "FAILED"
+				errorMsg = execErr.Error()
+			}
+
+			conn.WriteJSON(WSPayload{
+				Event:  "TASK_RESULT",
+				TaskID: msg.TaskID,
+				Payload: map[string]interface{}{
+					"status": status,
+					"output": outStr,
+					"error":  errorMsg,
+				},
+			})
+			log.Printf("Task %s completed with status %s", msg.TaskID, status)
 		}
 
-		conn.WriteJSON(WSPayload{
-			Event:  "TASK_RESULT",
-			TaskID: msg.TaskID,
-			Payload: map[string]interface{}{
-				"status": status,
-				"output": outStr,
-				"error":  errorMsg,
-			},
-		})
-		log.Printf("Task %s completed with status %s", msg.TaskID, status)
+		// If we break out of the execution loop, clean up and wait before reconnecting
+		conn.Close()
+		log.Println("Disconnected from Central Server. Retrying in 5 seconds...")
+		time.Sleep(5 * time.Second)
 	}
 }

@@ -37,7 +37,7 @@ func NewRouter(
         // Stubs for future implementation
         r.Get("/users", HandleListUsers)
         r.Get("/servers", HandleListServers)
-        r.Post("/servers", HandleRegisterServer)
+        r.Post("/servers", HandleRegisterServer(database))
     })
 
     // --- 2. Invite / Onboarding API (Unauthenticated initially, tokens checked inside handlers) ---
@@ -69,5 +69,3 @@ func NewRouter(
 // Stub handlers for endpoints not yet implemented
 func HandleListUsers(w http.ResponseWriter, r *http.Request) { w.Write([]byte("List Users")) }
 func HandleListServers(w http.ResponseWriter, r *http.Request) { w.Write([]byte("List Servers")) }
-func HandleRegisterServer(w http.ResponseWriter, r *http.Request) { w.Write([]byte("Register Server")) }
-// func HandleServeFrontend(w http.ResponseWriter, r *http.Request) { w.Write([]byte("Frontend UI")) }

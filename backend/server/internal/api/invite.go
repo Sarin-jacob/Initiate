@@ -149,12 +149,11 @@ func HandleInviteUser(database *gorm.DB, emailer *mailer.Mailer, baseSystemURL s
 
 		// 3. Dispatch Email
 		inviteURL := fmt.Sprintf("%s/invite?token=%s", baseSystemURL, rawToken)
-		fmt.Printf("\n\n=== TEST INVITE URL ===\n%s\n=======================\n\n", inviteURL)
-		// if err := emailer.SendInvite(req.Email, req.Username, inviteURL, expiresInHours); err != nil {
-		// 	tx.Rollback() // Rollback DB if email fails to send
-		// 	http.Error(w, "Failed to send invitation email", http.StatusInternalServerError)
-		// 	return
-		// }
+		if err := emailer.SendInvite(req.Email, req.Username, inviteURL, expiresInHours); err != nil {
+			tx.Rollback() // Rollback DB if email fails to send
+			http.Error(w, "Failed to send invitation email", http.StatusInternalServerError)
+			return
+		}
 
 		// 4. Commit Transaction
 		if err := tx.Commit().Error; err != nil {
