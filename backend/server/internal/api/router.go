@@ -1,15 +1,16 @@
 package api
 
 import (
-    "net/http"
+	"net/http"
+	"os"
 
-    "github.com/go-chi/chi/v5"
-    "github.com/go-chi/chi/v5/middleware"
-    "gorm.io/gorm"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"gorm.io/gorm"
 
-    "github.com/Sarin-jacob/Initiate/internal/agenthub"
-    "github.com/Sarin-jacob/Initiate/internal/gitea"
-    "github.com/Sarin-jacob/Initiate/internal/mailer"
+	"github.com/Sarin-jacob/Initiate/internal/agenthub"
+	"github.com/Sarin-jacob/Initiate/internal/gitea"
+	"github.com/Sarin-jacob/Initiate/internal/mailer"
 )
 
 func NewRouter(
@@ -49,7 +50,18 @@ func NewRouter(
     r.With(RequireEdgeAuth).Get("/agent/ws", hub.HandleWS)
 
     // --- 4. Frontend SPA Serve (Catch-all) ---
-    r.Get("/*", HandleServeFrontend)
+    fs := http.FileServer(http.Dir("./static"))
+	
+	// Catch-all route to support client-side routing (e.g. /invite?token=...)
+	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
+		// If requesting a specific file that exists, serve it
+		if _, err := os.Stat("./static" + r.URL.Path); err == nil {
+			fs.ServeHTTP(w, r)
+			return
+		}
+		// Otherwise, fallback to serving index.html (SPA routing behavior)
+		http.ServeFile(w, r, "./static/index.html")
+	})
 
     return r
 }
@@ -58,4 +70,4 @@ func NewRouter(
 func HandleListUsers(w http.ResponseWriter, r *http.Request) { w.Write([]byte("List Users")) }
 func HandleListServers(w http.ResponseWriter, r *http.Request) { w.Write([]byte("List Servers")) }
 func HandleRegisterServer(w http.ResponseWriter, r *http.Request) { w.Write([]byte("Register Server")) }
-func HandleServeFrontend(w http.ResponseWriter, r *http.Request) { w.Write([]byte("Frontend UI")) }
+// func HandleServeFrontend(w http.ResponseWriter, r *http.Request) { w.Write([]byte("Frontend UI")) }
