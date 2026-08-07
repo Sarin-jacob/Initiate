@@ -5,6 +5,7 @@
     import Users from './lib/views/Users.svelte';
     import Agents from './lib/views/Agents.svelte';
     import Pages from './lib/views/Pages.svelte';
+    import Macros from './lib/views/Macros.svelte';
 
     const urlParams = new URLSearchParams(window.location.search);
     const inviteToken = urlParams.get('token');
@@ -72,6 +73,7 @@
                     {#if currentView === 'users'} <Users /> {/if}
                     {#if currentView === 'agents'} <Agents /> {/if}
                     {#if currentView === 'pages'} <Pages /> {/if}
+                    {#if currentView === 'macros'} <Macros /> {/if}
                    
                 </main>
             </div> 
@@ -87,6 +89,7 @@
                     
                     <li><a class={currentView === 'users' ? 'active' : ''} on:click={() => currentView = 'users'}>Users & Access</a></li>
                     <li><a class={currentView === 'agents' ? 'active' : ''} on:click={() => currentView = 'agents'}>Edge Agents</a></li>
+                    <li><a class={currentView === 'macros' ? 'active' : ''} on:click={() => currentView = 'macros'}>Provisioning Macros</a></li>
                     <li><a class={currentView === 'pages' ? 'active' : ''} on:click={() => currentView = 'pages'}>CMS & Guides</a></li>
                     
                     <div class="divider my-2">System</div>
