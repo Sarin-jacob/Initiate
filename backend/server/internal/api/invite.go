@@ -17,12 +17,17 @@ import (
 	"github.com/Sarin-jacob/Initiate/internal/markdown"
 )
 
+// NEW: Structs to match the updated Svelte UI Payload
+type EdgeAllocation struct {
+	ServerID string   `json:"server_id"`
+	Modules  []string `json:"modules"`
+}
+
 type InviteUserRequest struct {
-	Username         string   `json:"username"`
-	Email            string   `json:"email"`
-	ProvisionGitea   bool     `json:"provision_gitea"`
-	EdgeServerIDs    []string `json:"edge_server_ids"`
-	MarkdownTemplate string   `json:"markdown_template"`
+	Username        string           `json:"username"`
+	Email           string           `json:"email"`
+	ProvisionGitea  bool             `json:"provision_gitea"`
+	EdgeAllocations []EdgeAllocation `json:"edge_allocations"`
 }
 
 // InviteDataResponse is the JSON payload sent to the frontend
@@ -35,7 +40,6 @@ type InviteDataResponse struct {
 // HandleGetInviteData fetches the invite, injects variables, and renders the Markdown to HTML
 func HandleGetInviteData(database *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// 1. Hash the token from the URL to check the DB
 		rawToken := chi.URLParam(r, "token")
 		if rawToken == "" {
 			http.Error(w, "Missing invite token", http.StatusBadRequest)
@@ -43,7 +47,6 @@ func HandleGetInviteData(database *gorm.DB) http.HandlerFunc {
 		}
 		tokenHash := crypto.HashToken(rawToken)
 
-		// 2. Look up the Invite and validate expiration
 		var invite db.Invitation
 		if err := database.Where("token_hash = ?", tokenHash).First(&invite).Error; err != nil {
 			http.Error(w, "Invalid invite token", http.StatusNotFound)
@@ -55,29 +58,27 @@ func HandleGetInviteData(database *gorm.DB) http.HandlerFunc {
 			return
 		}
 
-		// 3. Look up the associated User
 		var user db.User
 		if err := database.First(&user, "id = ?", invite.UserID).Error; err != nil {
 			http.Error(w, "Associated user not found", http.StatusInternalServerError)
 			return
 		}
 
-		// 4. Prepare data for the Markdown template
+		// Prepare data for the Markdown template
 		templateData := markdown.OnboardingTemplateData{
 			Username:  user.Username,
 			Email:     user.Email,
-			GiteaURL:  os.Getenv("GITEA_EXTERNAL_URL"), // e.g., https://gitea.yourdomain.com
+			GiteaURL:  os.Getenv("GITEA_EXTERNAL_URL"), 
 			SystemURL: os.Getenv("BASE_URL"),
+			Token:     rawToken, // CRITICAL: Added so CMS pages can create links like /page/{{.Token}}/ssh
 		}
 
-		// 5. Render the Markdown to HTML
 		renderedHTML, err := markdown.RenderGFM(invite.MarkdownTemplate, templateData)
 		if err != nil {
 			http.Error(w, "Failed to render onboarding documentation", http.StatusInternalServerError)
 			return
 		}
 
-		// 6. Return payload to frontend
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(InviteDataResponse{
 			Username:    user.Username,
@@ -102,7 +103,19 @@ func HandleInviteUser(database *gorm.DB, emailer *mailer.Mailer, baseSystemURL s
 			return
 		}
 
-		// 2. Start a Database Transaction
+		// 2. Fetch the default CMS page for Onboarding
+		var defaultSlugSetting db.SystemSetting
+		database.Where("key = ?", "default_invite_slug").First(&defaultSlugSetting)
+		
+		var defaultPage db.Page
+		markdownContent := "## Welcome {{.Username}}!\n\nPlease set your password below to finalize your account."
+		if defaultSlugSetting.Value != "" {
+			if err := database.Where("slug = ?", defaultSlugSetting.Value).First(&defaultPage).Error; err == nil {
+				markdownContent = defaultPage.Content
+			}
+		}
+
+		// 3. Start a Database Transaction
 		tx := database.Begin()
 		defer func() {
 			if r := recover(); r != nil {
@@ -124,12 +137,21 @@ func HandleInviteUser(database *gorm.DB, emailer *mailer.Mailer, baseSystemURL s
 			return
 		}
 
-		// Create Access Records
+		// Map Gitea Access
 		if req.ProvisionGitea {
-			tx.Create(&db.UserAccess{UserID: userID, TargetType: "GITEA", TargetID: ""})
+			tx.Create(&db.UserAccess{UserID: userID, TargetType: "GITEA", TargetID: "central-gitea"})
 		}
-		for _, serverID := range req.EdgeServerIDs {
-			tx.Create(&db.UserAccess{UserID: userID, TargetType: "SERVER", TargetID: serverID})
+		
+		// Map Edge Server Access & Serialize Granted Modules
+		for _, alloc := range req.EdgeAllocations {
+			modulesJSON, _ := json.Marshal(alloc.Modules)
+			tx.Create(&db.UserAccess{
+				ID:             uuid.New().String(),
+				UserID:         userID,
+				TargetType:     "SERVER",
+				TargetID:       alloc.ServerID,
+				GrantedModules: string(modulesJSON), // e.g. '["system_user", "ssh_key"]'
+			})
 		}
 
 		// Create Invitation Record (Expires in 48 hours)
@@ -137,8 +159,8 @@ func HandleInviteUser(database *gorm.DB, emailer *mailer.Mailer, baseSystemURL s
 		invite := db.Invitation{
 			ID:               uuid.New().String(),
 			UserID:           userID,
-			TokenHash:        tokenHash, // Only storing the hash!
-			MarkdownTemplate: req.MarkdownTemplate,
+			TokenHash:        tokenHash, 
+			MarkdownTemplate: markdownContent, // Sourced from CMS
 			ExpiresAt:        time.Now().Add(time.Duration(expiresInHours) * time.Hour),
 		}
 		if err := tx.Create(&invite).Error; err != nil {
@@ -147,15 +169,15 @@ func HandleInviteUser(database *gorm.DB, emailer *mailer.Mailer, baseSystemURL s
 			return
 		}
 
-		// 3. Dispatch Email
+		// 4. Dispatch Email
 		inviteURL := fmt.Sprintf("%s/invite?token=%s", baseSystemURL, rawToken)
 		if err := emailer.SendInvite(req.Email, req.Username, inviteURL, expiresInHours); err != nil {
-			tx.Rollback() // Rollback DB if email fails to send
+			tx.Rollback() 
 			http.Error(w, "Failed to send invitation email", http.StatusInternalServerError)
 			return
 		}
 
-		// 4. Commit Transaction
+		// 5. Commit Transaction
 		if err := tx.Commit().Error; err != nil {
 			http.Error(w, "Database transaction failed", http.StatusInternalServerError)
 			return

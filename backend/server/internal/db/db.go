@@ -41,10 +41,14 @@ type Page struct {
 
 // UserAccess tracks what edge modules the user has
 type UserAccess struct {
-	UserID     string `gorm:"primaryKey"`
-	TargetType string `gorm:"primaryKey"` // 'GITEA' or 'SERVER'
-	TargetID   string `gorm:"primaryKey"` // empty if GITEA, TargetServer.ID if SERVER
-	Status     string `gorm:"default:'PENDING'"`
+	ID             string `gorm:"primaryKey;type:uuid"`
+	UserID         string `gorm:"index;not null"`
+	TargetType     string `gorm:"not null"` // "GITEA" or "SERVER"
+	TargetID       string `gorm:"not null"` // Gitea identifier or Edge Server UUID
+	GrantedModules string `gorm:"type:text"` // NEW: Stores JSON array of allowed modules e.g., '["system_user", "ssh_key"]'
+	Status         string `gorm:"default:'PENDING'"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // Invitation tracks pending user invites
