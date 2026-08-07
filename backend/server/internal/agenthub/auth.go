@@ -82,16 +82,9 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	h.registerClient(client)
 
-	// Process Capabilities from the HELLO payload
-	capabilitiesJSON := "[]"
-	if caps, ok := hello.Payload["capabilities"].([]interface{}); ok {
-		var capStrings []string
-		for _, c := range caps {
-			if str, isStr := c.(string); isStr {
-				capStrings = append(capStrings, str)
-			}
-		}
-		if bytes, err := json.Marshal(capStrings); err == nil {
+	capabilitiesJSON := "{}" 
+	if caps, ok := hello.Payload["capabilities"].(map[string]interface{}); ok {
+		if bytes, err := json.Marshal(caps); err == nil {
 			capabilitiesJSON = string(bytes)
 		}
 	}
@@ -99,7 +92,7 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	// Update DB status and capabilities
 	h.db.Model(&target).Updates(map[string]interface{}{
 		"status":       "ONLINE",
-		"capabilities": capabilitiesJSON, // Save to DB
+		"capabilities": capabilitiesJSON, // Saves {"system_user":["create","delete"], "ssh_key":["create"]}
 		"last_seen":    time.Now(),
 	})
 

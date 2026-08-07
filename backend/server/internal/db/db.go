@@ -22,12 +22,13 @@ type User struct {
 
 // TargetServer represents an Edge Agent
 type TargetServer struct {
-	ID           string `gorm:"primaryKey;type:uuid"`
-	Name         string `gorm:"uniqueIndex;not null"`
-	PublicKey    string `gorm:"not null"`
-	Status       string `gorm:"default:'OFFLINE'"`
-	Capabilities string `gorm:"type:text"`
-	LastSeen     time.Time
+	ID           string    `gorm:"primaryKey;type:uuid"`
+	Name         string    `gorm:"not null"`
+	PublicKey    string    `gorm:"uniqueIndex;not null"`
+	Status       string    `gorm:"default:'OFFLINE'"`
+	Capabilities string    `gorm:"type:text"`
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type Page struct {
@@ -61,6 +62,15 @@ type Invitation struct {
 	UsedAt           *time.Time
 }
 
+type Macro struct {
+	ID          string    `gorm:"primaryKey;type:uuid"`
+	Name        string    `gorm:"uniqueIndex;not null"` // e.g., "Standard Linux Dev"
+	Description string    `gorm:"type:text"`
+	Steps       string    `gorm:"type:text;not null"`   // JSON array of MacroStep
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 type SystemSetting struct {
 	Key   string `gorm:"primaryKey"`
 	Value string `gorm:"type:text"`
@@ -80,6 +90,7 @@ func InitDB(dsn string) *gorm.DB {
 		&Invitation{},
 		&Page{},
 		&SystemSetting{},
+		&Macro{},
 	)
 	if err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)

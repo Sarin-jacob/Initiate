@@ -3,18 +3,19 @@ package agenthub
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/google/uuid"
 )
 
-// DispatchTask sends a command payload to a specific Edge Agent
-func (h *Hub) DispatchTask(serverID string, event string, payload map[string]interface{}) (string, error) {
+// DispatchTaskSync sends a command and blocks until the agent replies or it times out.
+func (h *Hub) DispatchTaskSync(serverID string, event string, payload map[string]interface{}, timeout time.Duration) (TaskResult, error) {
 	h.mu.RLock()
 	client, exists := h.clients[serverID]
 	h.mu.RUnlock()
 
 	if !exists {
-		return "", fmt.Errorf("agent %s is currently offline", serverID)
+		return TaskResult{}, fmt.Errorf("agent %s is offline", serverID)
 	}
 
 	taskID := uuid.New().String()
@@ -24,17 +25,41 @@ func (h *Hub) DispatchTask(serverID string, event string, payload map[string]int
 		Payload: payload,
 	}
 
-	// Write payload to WebSocket
+	// 1. Create a buffered channel for this specific TaskID
+	resultChan := make(chan TaskResult, 1)
+
+	// 2. Register the channel in the Hub's pending tasks registry
+	h.taskMu.Lock()
+	h.pendingTasks[taskID] = resultChan
+	h.taskMu.Unlock()
+
+	// 3. Ensure we clean up the channel registry no matter how this function exits
+	defer func() {
+		h.taskMu.Lock()
+		delete(h.pendingTasks, taskID)
+		h.taskMu.Unlock()
+		close(resultChan)
+	}()
+
+	// 4. Dispatch the payload over the wire
 	if err := client.Conn.WriteJSON(task); err != nil {
 		h.unregisterClient(serverID)
-		return "", fmt.Errorf("failed to send task to agent: %w", err)
+		return TaskResult{}, fmt.Errorf("failed to write to websocket: %w", err)
 	}
 
-	log.Printf("Dispatched task %s (%s) to agent %s", taskID, event, serverID)
-	return taskID, nil
+	log.Printf("Dispatched SYNC task %s (%s) to agent %s", taskID, event, serverID)
+
+	// 5. Block and wait! 
+	// The goroutine stops here until data hits resultChan OR the timeout hits.
+	select {
+	case res := <-resultChan:
+		return res, nil
+	case <-time.After(timeout):
+		return TaskResult{}, fmt.Errorf("task %s timed out after %v", taskID, timeout)
+	}
 }
 
-// listen keeps the WebSocket alive and processes async task results
+// listen keeps the WebSocket alive and routes incoming results to waiting channels
 func (h *Hub) listen(client *AgentClient) {
 	defer h.unregisterClient(client.ServerID)
 
@@ -48,15 +73,27 @@ func (h *Hub) listen(client *AgentClient) {
 		if msg.Event == "TASK_RESULT" {
 			status, _ := msg.Payload["status"].(string)
 			output, _ := msg.Payload["output"].(string)
-			
+
 			log.Printf("[Agent %s] Task %s Result: %s", client.ServerID, msg.TaskID, status)
-			
-			// If execution failed, log the output for debugging
 			if status == "FAILED" {
 				log.Printf("[Agent %s] Task %s Output/Error: %s", client.ServerID, msg.TaskID, output)
 			}
-			
-			// TODO: You could save this task result to a `job_logs` database table here for audit trails.
+
+			// NEW: Intercept the result and route it to the waiting goroutine
+			h.taskMu.RLock()
+			waitingChan, exists := h.pendingTasks[msg.TaskID]
+			h.taskMu.RUnlock()
+
+			if exists {
+				// Use a non-blocking send in case the waiting function timed out 
+				// a microsecond before this arrived.
+				select {
+				case waitingChan <- TaskResult{TaskID: msg.TaskID, Status: status, Output: output}:
+					// Routed successfully!
+				default:
+					log.Printf("Warning: Dropped result for task %s (channel closed/full)", msg.TaskID)
+				}
+			}
 		}
 	}
 }

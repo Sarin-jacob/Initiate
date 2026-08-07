@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -16,16 +17,13 @@ import (
 	"github.com/Sarin-jacob/Initiate/internal/gitea"
 )
 
-// CompleteOnboardingRequest parses the data sent by the frontend form
 type CompleteOnboardingRequest struct {
 	Password     string `json:"password"`
 	SSHPublicKey string `json:"ssh_public_key"`
 }
 
-// HandleCompleteOnboarding processes the final step of the user invite flow
 func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient *gitea.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// 1. Extract and hash the token from the URL
 		rawToken := chi.URLParam(r, "token")
 		if rawToken == "" {
 			http.Error(w, "Missing invite token", http.StatusBadRequest)
@@ -33,18 +31,12 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 		}
 		tokenHash := crypto.HashToken(rawToken)
 
-		// 2. Parse payload (Password + SSH Key)
 		var req CompleteOnboardingRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid payload", http.StatusBadRequest)
 			return
 		}
-		if len(req.Password) < 8 {
-			http.Error(w, "Password must be at least 8 characters", http.StatusBadRequest)
-			return
-		}
 
-		// 3. Database Validation Phase
 		var invite db.Invitation
 		if err := database.Where("token_hash = ?", tokenHash).First(&invite).Error; err != nil {
 			http.Error(w, "Invalid or expired invite token", http.StatusUnauthorized)
@@ -61,88 +53,103 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 			return
 		}
 
-		// 4. Hash the User's Password for the Web DB
 		hashBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
 			http.Error(w, "Failed to process password", http.StatusInternalServerError)
 			return
 		}
 
-		// 5. Fetch Provisioning Requirements
 		var accesses []db.UserAccess
 		database.Where("user_id = ?", user.ID).Find(&accesses)
 
-		// 6. Execute External Provisioning
 		for _, access := range accesses {
 			if access.TargetType == "GITEA" {
-				// Call Gitea REST API
 				err := giteaClient.CreateUser(r.Context(), user.Username, user.Email, req.Password)
 				if err != nil {
-					log.Printf("Failed to provision Gitea for user %s: %v", user.Username, err)
+					log.Printf("Failed to provision Gitea for %s: %v", user.Username, err)
+					database.Model(&access).Update("status", "FAILED")
 				} else {
 					database.Model(&access).Update("status", "ACTIVE")
 				}
 			}
 
 			if access.TargetType == "SERVER" {
-				// V2 Payload: Now includes the raw password so the Agent can run `chpasswd`
 				payload := map[string]interface{}{
 					"username":       user.Username,
 					"password":       req.Password,
 					"ssh_public_key": req.SSHPublicKey,
 				}
 				
-				// Dispatch the 3-step V2 Sequence
-				var agentErrs []error
-				
-				_, err1 := hub.DispatchTask(access.TargetID, "system_user:create", payload)
-				if err1 != nil { agentErrs = append(agentErrs, err1) }
-				
-				_, err2 := hub.DispatchTask(access.TargetID, "system_user:set_password", payload)
-				if err2 != nil { agentErrs = append(agentErrs, err2) }
-				
-				_, err3 := hub.DispatchTask(access.TargetID, "ssh_key:create", payload)
-				if err3 != nil { agentErrs = append(agentErrs, err3) }
+				// 1. Parse the pipeline steps from the database
+				var steps []MacroStep
+				if access.GrantedModules != "" {
+					// Attempt to unmarshal as the new strict Macro pipeline array
+					if err := json.Unmarshal([]byte(access.GrantedModules), &steps); err != nil {
+						// FALLBACK: If this is an older invite using the string array ["system_user"]
+						var oldModules []string
+						if fallbackErr := json.Unmarshal([]byte(access.GrantedModules), &oldModules); fallbackErr == nil {
+							for _, mod := range oldModules {
+								steps = append(steps, MacroStep{Module: mod, Action: "create"})
+								if mod == "system_user" { // Preserve the old hardcoded rule for legacy invites
+									steps = append(steps, MacroStep{Module: mod, Action: "set_password"})
+								}
+							}
+						} else {
+							log.Printf("Failed to decode pipeline steps for server %s: %v", access.TargetID, err)
+							continue
+						}
+					}
+				}
 
-				if len(agentErrs) > 0 {
-					log.Printf("Agent %s encountered errors provisioning %s: %v", access.TargetID, user.Username, agentErrs)
-				} else {
+				// 2. Execute the Pipeline Synchronously
+				pipelineSuccess := true
+				
+				for _, step := range steps {
+					event := fmt.Sprintf("%s:%s", step.Module, step.Action)
+					log.Printf("Executing %s on agent %s...", event, access.TargetID)
+
+					// Block and wait up to 30 seconds for the Agent to complete this specific action
+					res, err := hub.DispatchTaskSync(access.TargetID, event, payload, 30*time.Second)
+					
+					if err != nil {
+						log.Printf("Pipeline aborted on %s: Timeout or connection lost during '%s'", access.TargetID, event)
+						pipelineSuccess = false
+						break // HALT PIPELINE
+					}
+
+					if res.Status == "FAILED" {
+						log.Printf("Pipeline aborted on %s: Step '%s' failed. Error: %s", access.TargetID, event, res.Output)
+						pipelineSuccess = false
+						break // HALT PIPELINE
+					}
+					
+					log.Printf("Step '%s' succeeded on %s", event, access.TargetID)
+				}
+
+				// 3. Update Database Status based on Pipeline success
+				if pipelineSuccess {
 					database.Model(&access).Update("status", "ACTIVE")
+				} else {
+					database.Model(&access).Update("status", "FAILED")
 				}
 			}
 		}
 
-		// 7. Finalize Database State (Transaction)
+		// Finalize the Onboarding (Mark invite used, update user)
 		tx := database.Begin()
-		
-		// Mark Invite as used
 		now := time.Now()
-		if err := tx.Model(&invite).Update("used_at", now).Error; err != nil {
-			tx.Rollback()
-			http.Error(w, "Database error", http.StatusInternalServerError)
-			return
-		}
-
-		// Update User Record
-		userUpdates := map[string]interface{}{
+		tx.Model(&invite).Update("used_at", now)
+		tx.Model(&user).Updates(map[string]interface{}{
 			"password_hash":  string(hashBytes),
 			"ssh_public_key": req.SSHPublicKey,
 			"status":         "ACTIVE",
-		}
-		if err := tx.Model(&user).Updates(userUpdates).Error; err != nil {
-			tx.Rollback()
-			http.Error(w, "Database error", http.StatusInternalServerError)
-			return
-		}
-
+		})
 		tx.Commit()
 
-		// 8. Respond Success
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{
 			"status":  "success",
-			"message": "Onboarding complete. Your accounts have been provisioned.",
+			"message": "Onboarding complete. Check dashboard for provisioning status.",
 		})
 	}
 }

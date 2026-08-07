@@ -85,9 +85,13 @@ func main() {
 	}
 
 	// Extract Module Names to report as Capabilities
-	var capabilities []string
-	for moduleName := range config.Modules {
-		capabilities = append(capabilities, moduleName)
+	capabilities := make(map[string][]string)
+	for moduleName, moduleActions := range config.Modules {
+		var actionNames []string
+		for actionName := range moduleActions {
+			actionNames = append(actionNames, actionName)
+		}
+		capabilities[moduleName] = actionNames
 	}
 
 	headers := http.Header{}

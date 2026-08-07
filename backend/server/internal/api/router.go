@@ -44,6 +44,9 @@ func NewRouter(
 
         r.Get("/settings", HandleGetSettings(database))
         r.Post("/settings", HandleUpdateSettings(database))
+
+        r.Get("/macros", HandleGetMacros(database))
+        r.Post("/macros", HandleCreateMacro(database))
     })
 
     // --- 2. Invite / Onboarding API (Unauthenticated initially, tokens checked inside handlers) ---
