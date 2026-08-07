@@ -13,6 +13,8 @@ export default defineConfig({
     emptyOutDir: true
   },
   server: {
+    port:80,
+    host:'0.0.0.0',
     // Proxy API requests to Go backend during local dev
     proxy: {
       '/api': 'http://localhost:8080'
