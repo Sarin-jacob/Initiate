@@ -61,7 +61,7 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 			return
 		}
 
-		// 4. Hash the User's Password
+		// 4. Hash the User's Password for the Web DB
 		hashBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
 			http.Error(w, "Failed to process password", http.StatusInternalServerError)
@@ -73,33 +73,39 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 		database.Where("user_id = ?", user.ID).Find(&accesses)
 
 		// 6. Execute External Provisioning
-		// Note: In a heavily distributed environment, this should be a background queue. 
-		// For this architecture, we execute synchronously to guarantee immediate access.
-		
 		for _, access := range accesses {
 			if access.TargetType == "GITEA" {
 				// Call Gitea REST API
 				err := giteaClient.CreateUser(r.Context(), user.Username, user.Email, req.Password)
 				if err != nil {
 					log.Printf("Failed to provision Gitea for user %s: %v", user.Username, err)
-					// We log the error but continue provisioning other resources
 				} else {
 					database.Model(&access).Update("status", "ACTIVE")
 				}
 			}
 
 			if access.TargetType == "SERVER" {
-				// Dispatch WebSocket Command to Edge Agent
+				// V2 Payload: Now includes the raw password so the Agent can run `chpasswd`
 				payload := map[string]interface{}{
 					"username":       user.Username,
+					"password":       req.Password,
 					"ssh_public_key": req.SSHPublicKey,
 				}
 				
-				_, err := hub.DispatchTask(access.TargetID, "PROVISION", payload)
-				if err != nil {
-					log.Printf("Failed to dispatch to agent %s for user %s: %v", access.TargetID, user.Username, err)
-					// Agent is offline. Status remains 'PENDING' in DB.
-					// A real-world system would re-sync pending tasks when the agent reconnects.
+				// Dispatch the 3-step V2 Sequence
+				var agentErrs []error
+				
+				_, err1 := hub.DispatchTask(access.TargetID, "system_user:create", payload)
+				if err1 != nil { agentErrs = append(agentErrs, err1) }
+				
+				_, err2 := hub.DispatchTask(access.TargetID, "system_user:set_password", payload)
+				if err2 != nil { agentErrs = append(agentErrs, err2) }
+				
+				_, err3 := hub.DispatchTask(access.TargetID, "ssh_key:create", payload)
+				if err3 != nil { agentErrs = append(agentErrs, err3) }
+
+				if len(agentErrs) > 0 {
+					log.Printf("Agent %s encountered errors provisioning %s: %v", access.TargetID, user.Username, agentErrs)
 				} else {
 					database.Model(&access).Update("status", "ACTIVE")
 				}
