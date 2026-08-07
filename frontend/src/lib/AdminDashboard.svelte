@@ -1,5 +1,6 @@
 <script>
     import { onMount } from 'svelte';
+    import Settings from './Settings.svelte';
 
     // --- State ---
     let activeTab = 'users'; // 'users', 'agents', 'provision'
@@ -116,6 +117,7 @@ Please set your password below to finalize your system access. Your Gitea accoun
         <button role="tab" class="tab text-lg {activeTab === 'users' ? 'tab-active font-bold' : ''}" on:click={() => activeTab = 'users'}>User Access Matrix</button>
         <button role="tab" class="tab text-lg {activeTab === 'agents' ? 'tab-active font-bold' : ''}" on:click={() => activeTab = 'agents'}>Edge Agents</button>
         <button role="tab" class="tab text-lg {activeTab === 'provision' ? 'tab-active font-bold' : ''}" on:click={() => activeTab = 'provision'}>Provision New User</button>
+        <button role="tab" class="tab text-lg {activeTab === 'settings' ? 'tab-active font-bold' : ''}" on:click={() => activeTab = 'settings'}>Templates / CMS</button>
     </div>
 
     <!-- TAB 1: USERS MATRIX -->
@@ -215,7 +217,19 @@ Please set your password below to finalize your system access. Your Gitea accoun
                                                 <div class="badge badge-error gap-1">Offline</div>
                                             {/if}
                                         </td>
-                                        <td class="font-bold">{server.Name}</td>
+                                        <td>
+                                            <div class="font-bold">{server.Name}</div>
+                                            <!-- Parse the JSON string into tags -->
+                                            <div class="flex gap-1 mt-1">
+                                                {#if server.Capabilities && server.Capabilities !== "[]"}
+                                                    {#each JSON.parse(server.Capabilities || "[]") as cap}
+                                                        <span class="badge badge-outline badge-xs text-info">{cap}</span>
+                                                    {/each}
+                                                {:else}
+                                                    <span class="text-xs text-gray-400">No capabilities reported</span>
+                                                {/if}
+                                            </div>
+                                        </td>
                                         <td class="font-mono text-xs">{server.ID}</td>
                                         <td class="font-mono text-xs text-gray-500" title={server.PublicKey}>
                                             {server.PublicKey.substring(0, 16)}...
@@ -304,5 +318,8 @@ Please set your password below to finalize your system access. Your Gitea accoun
                 </form>
             </div>
         </div>
+    {/if}
+    {#if activeTab === 'settings'}
+        <Settings />
     {/if}
 </div>
