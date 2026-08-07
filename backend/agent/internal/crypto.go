@@ -24,8 +24,18 @@ func LoadPrivateKey(path string) (ed25519.PrivateKey, error) {
 }
 
 // SignChallenge signs the random nonce sent by the Central Server
-func SignChallenge(privateKey ed25519.PrivateKey, nonce string) string {
-	signature := ed25519.Sign(privateKey, []byte(nonce))
+func SignChallenge(privateKey ed25519.PrivateKey, nonceHex string) string {
+	// 1. Decode the hex string back into raw cryptographic bytes
+	nonceBytes, err := hex.DecodeString(nonceHex)
+	if err != nil {
+		fmt.Println("Error decoding nonce:", err)
+		return ""
+	}
+
+	// 2. Sign the raw bytes
+	signature := ed25519.Sign(privateKey, nonceBytes)
+	
+	// 3. Return the signature as a hex string
 	return hex.EncodeToString(signature)
 }
 
