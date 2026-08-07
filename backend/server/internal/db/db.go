@@ -22,11 +22,21 @@ type User struct {
 
 // TargetServer represents an Edge Agent
 type TargetServer struct {
-	ID        string `gorm:"primaryKey;type:uuid"`
-	Name      string `gorm:"uniqueIndex;not null"`
-	PublicKey string `gorm:"not null"` // Ed25519 Public Key
-	Status    string `gorm:"default:'OFFLINE'"`
-	LastSeen  time.Time
+	ID           string `gorm:"primaryKey;type:uuid"`
+	Name         string `gorm:"uniqueIndex;not null"`
+	PublicKey    string `gorm:"not null"`
+	Status       string `gorm:"default:'OFFLINE'"`
+	Capabilities string `gorm:"type:text"`
+	LastSeen     time.Time
+}
+
+type Page struct {
+	ID        string    `gorm:"primaryKey;type:uuid"`
+	Slug      string    `gorm:"uniqueIndex;not null"` // e.g., 'index', 'ssh-guide'
+	Title     string    `gorm:"not null"`
+	Content   string    `gorm:"type:text"` // The raw markdown with Go variables
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // UserAccess tracks what edge modules the user has
@@ -58,7 +68,8 @@ func InitDB(dsn string) *gorm.DB {
 		&User{},
 		&TargetServer{},
 		&UserAccess{},
-		&Invitation{}, // Added Invitation schema here
+		&Invitation{},
+		&Page{},
 	)
 	if err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)

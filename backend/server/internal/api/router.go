@@ -33,6 +33,9 @@ func NewRouter(
         
         r.Post("/users/invite", HandleInviteUser(database, emailer, baseSystemURL))
         r.Delete("/users/{id}", HandleDeprovisionUser(database, hub, giteaClient))
+
+        r.Get("/pages", HandleListPages(database))
+        r.Post("/pages", HandleSavePage(database))
         
         // Stubs for future implementation
         r.Get("/users", HandleListUsers(database))
@@ -44,6 +47,7 @@ func NewRouter(
     r.Route("/api/invite", func(r chi.Router) {
         r.Get("/{token}", HandleGetInviteData(database))
         r.Post("/{token}/complete", HandleCompleteOnboarding(database, hub, giteaClient))
+        r.Get("/{token}/page/{slug}", HandleGetPageBySlug(database))
     })
 
     // --- 3. Edge Agent WebSocket (Secured by Ed25519) ---

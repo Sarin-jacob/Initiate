@@ -51,6 +51,11 @@ func main() {
 		TLSClientConfig: internal.GetPinnedTLSConfig(config.Server.CertPin),
 	}
 	
+	var capabilities []string
+	for eventName := range config.Executor {
+		capabilities = append(capabilities, eventName)
+	}
+
 	headers := http.Header{}
 	headers.Add("X-Agent-Pubkey", pubKey)
 
@@ -71,7 +76,11 @@ func main() {
 		log.Println("Connected. Initiating Handshake...")
 
 		// 5. Authenticate
-		conn.WriteJSON(WSPayload{Event: "AGENT_HELLO", Payload: map[string]interface{}{"public_key": pubKey}})
+		helloPayload := map[string]interface{}{
+			"public_key":   pubKey,
+			"capabilities": capabilities, // Agent reports what it can do
+		}
+		conn.WriteJSON(WSPayload{Event: "AGENT_HELLO", Payload: helloPayload})
 
 		var challenge WSPayload
 		conn.ReadJSON(&challenge)
