@@ -57,6 +57,11 @@ type Invitation struct {
 	UsedAt           *time.Time
 }
 
+type SystemSetting struct {
+	Key   string `gorm:"primaryKey"`
+	Value string `gorm:"type:text"`
+}
+
 func InitDB(dsn string) *gorm.DB {
 	database, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -70,11 +75,30 @@ func InitDB(dsn string) *gorm.DB {
 		&UserAccess{},
 		&Invitation{},
 		&Page{},
+		&SystemSetting{},
 	)
 	if err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
+	seedDefaultSettings(database)
 
 	log.Println("Database initialized and migrated.")
 	return database
+}
+
+func seedDefaultSettings(db *gorm.DB) {
+	defaults := map[string]string{
+		"theme":               "corporate",
+		"gitea_url":           "http://localhost:3000",
+		"default_invite_slug": "index", // Which markdown page to load first
+		"user_expire_days":    "0",       // 0 means never expire
+	}
+
+	for key, val := range defaults {
+		var setting SystemSetting
+		// Only create if it doesn't exist
+		if err := db.Where("key = ?", key).First(&setting).Error; err != nil {
+			db.Create(&SystemSetting{Key: key, Value: val})
+		}
+	}
 }
