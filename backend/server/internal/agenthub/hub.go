@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/Sarin-jacob/Initiate/internal/gitea"
 	"github.com/gorilla/websocket"
 	"gorm.io/gorm"
 )
@@ -28,15 +29,17 @@ type Hub struct {
 	mu      		sync.RWMutex
 	clients 		map[string]*AgentClient
 	db      		*gorm.DB
+	gitea   		*gitea.Client
 	pendingTasks 	map[string]chan TaskResult
 	taskMu       	sync.RWMutex
 }
 
 // Ensure your Hub initialization includes the new map!
-func NewHub(database *gorm.DB) *Hub {
+func NewHub(database *gorm.DB, giteaClient *gitea.Client) *Hub {
 	return &Hub{
 		clients:      make(map[string]*AgentClient),
 		db:           database,
+		gitea:        giteaClient,
 		pendingTasks: make(map[string]chan TaskResult), // Initialize the map
 	}
 }

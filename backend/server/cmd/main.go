@@ -18,13 +18,14 @@ func main() {
     // 1. Initialize SQLite Database
     database := db.InitDB("edgeauth.db")
 
-    // 2. Initialize Subsystems
-    hub := agenthub.NewHub(database)
     
     giteaClient := gitea.NewClient(
         os.Getenv("GITEA_INTERNAL_URL"),
         os.Getenv("GITEA_ADMIN_TOKEN"),
     )
+    
+    // 2. Initialize Subsystems
+    hub := agenthub.NewHub(database, giteaClient)
 
     emailConfig := mailer.SMTPConfig{
         Host:     os.Getenv("SMTP_HOST"),

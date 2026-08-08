@@ -1,6 +1,7 @@
 package agenthub
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
@@ -10,6 +11,13 @@ import (
 
 // DispatchTaskSync sends a command and blocks until the agent replies or it times out.
 func (h *Hub) DispatchTaskSync(serverID string, event string, payload map[string]interface{}, timeout time.Duration) (TaskResult, error) {
+	taskID := uuid.New().String()
+	
+	if serverID == "internal-gitea" {
+		log.Printf("Intercepted %s for Virtual Agent (Gitea)", event)
+		return h.handleVirtualGiteaTask(taskID, event, payload), nil
+	}
+
 	h.mu.RLock()
 	client, exists := h.clients[serverID]
 	h.mu.RUnlock()
@@ -18,7 +26,6 @@ func (h *Hub) DispatchTaskSync(serverID string, event string, payload map[string
 		return TaskResult{}, fmt.Errorf("agent %s is offline", serverID)
 	}
 
-	taskID := uuid.New().String()
 	task := WSPayload{
 		Event:   event,
 		TaskID:  taskID,
@@ -96,4 +103,30 @@ func (h *Hub) listen(client *AgentClient) {
 			}
 		}
 	}
+}
+
+// handleVirtualGiteaTask translates macro events into local REST API calls
+func (h *Hub) handleVirtualGiteaTask(taskID string, event string, payload map[string]interface{}) TaskResult {
+	username, _ := payload["username"].(string)
+	
+	var err error
+	switch event {
+	case "gitea_user:create":
+		email, _ := payload["email"].(string) 
+		password, _ := payload["password"].(string)
+		err = h.gitea.CreateUser(context.Background(), username, email, password)
+	
+	case "gitea_user:delete":
+		purgeRepos, _ := payload["purge_repos"].(bool)
+		err = h.gitea.DeleteUser(context.Background(), username, purgeRepos)
+	
+	// Add cases for suspend/resume later as needed
+	default:
+		return TaskResult{TaskID: taskID, Status: "FAILED", Output: "Unknown Gitea action: " + event}
+	}
+
+	if err != nil {
+		return TaskResult{TaskID: taskID, Status: "FAILED", Output: err.Error()}
+	}
+	return TaskResult{TaskID: taskID, Status: "SUCCESS", Output: "Gitea task completed successfully"}
 }

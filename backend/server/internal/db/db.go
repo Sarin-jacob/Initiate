@@ -97,6 +97,7 @@ func InitDB(dsn string) *gorm.DB {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
 	seedDefaultSettings(database)
+	seedVirtualAgents(database)
 
 	log.Println("Database initialized and migrated.")
 	return database
@@ -116,5 +117,29 @@ func seedDefaultSettings(db *gorm.DB) {
 		if err := db.Where("key = ?", key).First(&setting).Error; err != nil {
 			db.Create(&SystemSetting{Key: key, Value: val})
 		}
+	}
+}
+
+// seedVirtualAgents ensures internal systems are registered as targets with their capabilities
+func seedVirtualAgents(db *gorm.DB) {
+	// Gitea's internal capabilities manifest
+	capabilities := `{"gitea_user":["create","delete","suspend"]}`
+	
+	var agent TargetServer
+	if err := db.Where("id = ?", "internal-gitea").First(&agent).Error; err != nil {
+		// Does not exist, create it
+		db.Create(&TargetServer{
+			ID:           "internal-gitea",
+			Name:         "Central Gitea Server",
+			PublicKey:    "internal-virtual-agent",
+			Status:       "ONLINE", // Always online
+			Capabilities: capabilities,
+		})
+	} else {
+		// Update capabilities in case we added new features in the code
+		db.Model(&agent).Updates(map[string]interface{}{
+			"status":       "ONLINE",
+			"capabilities": capabilities,
+		})
 	}
 }
