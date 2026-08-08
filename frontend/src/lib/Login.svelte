@@ -17,9 +17,9 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ password })
             });
-            const data = await res.json();
-            
-            if (!res.ok) throw new Error(data.message || "Invalid password");
+            const contentType = res.headers.get('content-type') || '';
+            const data = contentType.includes('application/json') ? await res.json() : await res.text();
+            if (!res.ok) { throw new Error( typeof data === 'object' ? data.message || 'Invalid password' : data || 'Invalid password' ); }
             
             localStorage.setItem('nexus_jwt', data.token);
             dispatch('success');
