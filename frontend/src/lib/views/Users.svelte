@@ -12,17 +12,20 @@
     
     let modalsRef; // Reference to our ActionModals component
 
-    const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer test-admin' };
+    const getHeaders = () => ({ 
+            'Content-Type': 'application/json', 
+            'Authorization': 'Bearer ' + localStorage.getItem('nexus_jwt') 
+        });
 
     async function fetchData() {
         try {
             // Added settings fetch to grab the Gitea URL for Avatars
             const [resUsers, resServers, resMacros, resPages, resSettings] = await Promise.all([
-                fetch('/api/admin/users', { headers }),
-                fetch('/api/admin/servers', { headers }),
-                fetch('/api/admin/macros', { headers }),
-                fetch('/api/admin/pages', { headers }),
-                fetch('/api/admin/settings', { headers })
+                fetch('/api/admin/users', { headers: getHeaders() }),
+                fetch('/api/admin/servers', { headers: getHeaders() }),
+                fetch('/api/admin/macros', { headers: getHeaders() }),
+                fetch('/api/admin/pages', { headers: getHeaders() }),
+                fetch('/api/admin/settings', { headers: getHeaders() })
             ]);
             
             if (resUsers.ok) users = await resUsers.json() || [];

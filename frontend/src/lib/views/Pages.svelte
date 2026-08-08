@@ -19,13 +19,16 @@
     let isDeleting = false;
 
     const cheatSheet = ['{{.Username}}', '{{.Email}}', '{{.GiteaURL}}', '{{.Token}}', '{{.InviteURL}}'];
-    const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer test-admin' };
+    const getHeaders = () => ({ 
+            'Content-Type': 'application/json', 
+            'Authorization': 'Bearer ' + localStorage.getItem('nexus_jwt') 
+        });
 
     async function fetchData() {
         try {
             const [pgRes, setRes] = await Promise.all([
-                fetch('/api/admin/pages', { headers }),
-                fetch('/api/admin/settings', { headers })
+                fetch('/api/admin/pages', { headers: getHeaders() }),
+                fetch('/api/admin/settings', { headers: getHeaders() })
             ]);
             if (pgRes.ok) pages = await pgRes.json() || [];
             if (setRes.ok) settings = await setRes.json() || {};
@@ -65,7 +68,7 @@
         
         try {
             const res = await fetch('/api/admin/pages/preview', {
-                method: 'POST', headers,
+                method: 'POST', headers: getHeaders(),
                 body: JSON.stringify({ content: currentContent })
             });
             const data = await res.json();
@@ -83,7 +86,7 @@
         isSaving = true;
         try {
             const res = await fetch('/api/admin/pages', {
-                method: 'POST', headers,
+                method: 'POST', headers: getHeaders(),
                 body: JSON.stringify({ slug: currentSlug, title: currentTitle, content: currentContent })
             });
             if (!res.ok) throw new Error("Failed to save document");
@@ -98,7 +101,7 @@
         if (!confirm(`WARNING: Are you sure you want to delete /${currentSlug}?`)) return;
         isDeleting = true;
         try {
-            const res = await fetch(`/api/admin/pages/${currentSlug}`, { method: 'DELETE', headers });
+            const res = await fetch(`/api/admin/pages/${currentSlug}`, { method: 'DELETE', headers: getHeaders() });
             if (!res.ok) throw new Error("Failed to delete document");
             
             addToast("Document deleted.", "success");

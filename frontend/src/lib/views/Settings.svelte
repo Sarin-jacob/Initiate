@@ -21,14 +21,17 @@
         "retro", "cyberpunk", "valentine", "aqua", "night", "winter", "dim"
     ];
 
-    const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer test-admin' };
+    const getHeaders = () => ({ 
+            'Content-Type': 'application/json', 
+            'Authorization': 'Bearer ' + localStorage.getItem('nexus_jwt') 
+        });
 
     onMount(async () => {
         isLoading = true;
         try {
             const [setRes, pageRes] = await Promise.all([
-                fetch('/api/admin/settings', { headers }),
-                fetch('/api/admin/pages', { headers })
+                fetch('/api/admin/settings', { headers: getHeaders() }),
+                fetch('/api/admin/pages', { headers: getHeaders() })
             ]);
             if (setRes.ok) {
                 const data = await setRes.json();
@@ -51,7 +54,7 @@
         isSaving = true;
         try {
             const res = await fetch('/api/admin/settings', {
-                method: 'POST', headers, body: JSON.stringify(settings)
+                method: 'POST', headers: getHeaders(), body: JSON.stringify(settings)
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message || "Failed to save settings");

@@ -9,6 +9,7 @@
     import Users from './lib/views/Users.svelte';
     import Agents from './lib/views/Agents.svelte';
     import Macros from './lib/views/Macros.svelte';
+    import Login from './lib/Login.svelte';
 
     const urlParams = new URLSearchParams(window.location.search);
     const inviteToken = urlParams.get('token');
@@ -16,6 +17,8 @@
 
     let currentView = 'users'; 
     let isAppReady = false;
+    let isAuthenticated = false; 
+
     let systemTheme = localStorage.getItem('nexus_theme') || 'corporate';
     let cmsDocs = []; 
 
@@ -27,25 +30,55 @@
     }
 
     onMount(async () => {
+        // 1. External Public Routes
         if (inviteToken || docSlug) {
             isAppReady = true;
             return;
         }
 
+        // 2. Admin Routes: Check if they already have a token
+        const token = localStorage.getItem('nexus_jwt');
+        if (token) {
+            await loadAdminData(token);
+        } else {
+            // No token? They must log in.
+            isAppReady = true;
+        }
+    });
+
+    // Helper to fetch initial secure data
+    async function loadAdminData(token) {
         try {
+            const headers = { 'Authorization': 'Bearer ' + token };
+            
             const [setRes, pagesRes] = await Promise.all([
-                fetch('/api/admin/settings', { headers: { 'Authorization': 'Bearer test-admin' } }),
-                fetch('/api/admin/pages', { headers: { 'Authorization': 'Bearer test-admin' } })
+                fetch('/api/admin/settings', { headers }),
+                fetch('/api/admin/pages', { headers })
             ]);
             
             if (setRes.ok) {
+                isAuthenticated = true; // Token is valid!
                 const data = await setRes.json();
                 if (data.theme && data.theme !== systemTheme) systemTheme = data.theme;
+                if (pagesRes.ok) cmsDocs = await pagesRes.json() || [];
+            } else {
+                // Token is invalid or expired
+                localStorage.removeItem('nexus_jwt');
+                isAuthenticated = false;
             }
-            if (pagesRes.ok) cmsDocs = await pagesRes.json() || [];
-        } catch (err) { console.error("Global fetch failed", err); }
-        finally { isAppReady = true; }
-    });
+        } catch (err) { 
+            console.error("Global fetch failed", err); 
+        } finally { 
+            isAppReady = true; 
+        }
+    }
+
+    // Triggered when Login.svelte fires its 'success' event
+    function onLoginSuccess() {
+        isAppReady = false; // Show loading skeleton while fetching data
+        const token = localStorage.getItem('nexus_jwt');
+        loadAdminData(token);
+    }
 
     function navigate(view) {
         currentView = view;
@@ -56,9 +89,9 @@
 
 <Toast />
 
-<div class="min-h-screen bg-base-200 text-base-content font-sans text-lg">
+<div class="min-h-screen bg-base-200 text-base-content font-sans">
     {#if !isAppReady}
-        <!-- UX Polish: Skeleton Loaders instead of spinner -->
+        <!-- Loading Skeleton -->
         <div class="p-10 space-y-4 max-w-7xl mx-auto mt-10">
             <div class="skeleton h-12 w-64"></div>
             <div class="skeleton h-64 w-full"></div>
@@ -67,10 +100,16 @@
     
     {:else if inviteToken}
         <Onboarding token={inviteToken} />
+        
     {:else if docSlug}
         <PublicDoc slug={docSlug} />
-    
+        
+    {:else if !isAuthenticated}
+        <!-- PROPER LOGIN ROUTING -->
+        <Login on:success={onLoginSuccess} />
+        
     {:else}
+        <!-- SECURE ADMIN DASHBOARD -->
         <div class="drawer lg:drawer-open">
             <input id="admin-drawer" type="checkbox" class="drawer-toggle" />
             <div class="drawer-content flex flex-col">
@@ -91,7 +130,7 @@
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" /></svg>
                                 <span class="hidden md:inline">Docs</span>
                             </div>
-                            <ul class="dropdown-content z-[1] menu p-2 shadow-lg bg-base-100 rounded-box w-64 border border-base-300">
+                            <ul class="dropdown-content z-1 menu p-2 shadow-lg bg-base-100 rounded-box w-64 border border-base-300">
                                 <li class="menu-title px-4 py-2">Quick Reference</li>
                                 {#each cmsDocs as doc}
                                     <li><a href="?docs={doc.Slug}" target="_blank" class="font-mono text-sm">{doc.Title}</a></li>
@@ -106,6 +145,9 @@
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                             </button>
                         </div>
+                        
+                        <!-- ADD LOGOUT BUTTON HERE LATER IF YOU WANT IT -->
+                        
                     </div>
                 </div>
                 

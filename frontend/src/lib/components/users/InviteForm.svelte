@@ -74,9 +74,9 @@
     }
 </script>
 
-<div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
+<div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm rounded-t-2xl">
     <input type="checkbox" /> 
-    <div class="collapse-title text-xl font-bold p-6">+ Provision New User Access</div>
+    <div class="collapse-title text-lg font-bold p-6 bg-primary rounded-t-2xl text-primary-content">+ Provision New User Access</div>
     <div class="collapse-content border-t border-base-200 p-6">
         <form on:submit={handleInvite} class="space-y-6 pt-4">
             {#if alertMsg}
@@ -100,7 +100,7 @@
                 <label class="label"><span class="label-text font-bold">Automated Expiration</span></label>
                 <div class="join w-full">
                     <input type="number" name="expireAmount" min="0" placeholder="0 = Never" class="input input-bordered join-item w-full input-lg" />
-                    <select name="expireUnit" class="select select-bordered join-item input-lg">
+                    <select name="expireUnit" class="select select-bordered join-item bg-primary input-lg h-auto w-1/3">
                         <option value="days">Days</option>
                         <option value="weeks">Weeks</option>
                         <option value="months">Months</option>

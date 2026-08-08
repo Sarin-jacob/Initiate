@@ -48,23 +48,8 @@ type InviteDataResponse struct {
 // HandleGetInviteData fetches the invite, injects variables, and renders the Markdown to HTML
 func HandleGetInviteData(database *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		invite := r.Context().Value("invite").(db.Invitation)
 		rawToken := chi.URLParam(r, "token")
-		if rawToken == "" {
-			http.Error(w, "Missing invite token", http.StatusBadRequest)
-			return
-		}
-		tokenHash := crypto.HashToken(rawToken)
-
-		var invite db.Invitation
-		if err := database.Where("token_hash = ?", tokenHash).First(&invite).Error; err != nil {
-			http.Error(w, "Invalid invite token", http.StatusNotFound)
-			return
-		}
-		
-		if invite.UsedAt != nil || time.Now().After(invite.ExpiresAt) {
-			http.Error(w, "This invite token has expired or already been used", http.StatusUnauthorized)
-			return
-		}
 
 		var user db.User
 		if err := database.First(&user, "id = ?", invite.UserID).Error; err != nil {

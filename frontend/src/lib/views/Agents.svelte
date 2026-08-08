@@ -6,13 +6,16 @@
     let macros = [];
     let configModalRef;
     
-    const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer test-admin' };
+    const getHeaders = () => ({ 
+            'Content-Type': 'application/json', 
+            'Authorization': 'Bearer ' + localStorage.getItem('nexus_jwt') 
+        });
 
     async function fetchData() {
         try {
             const [srvRes, macRes] = await Promise.all([
-                fetch('/api/admin/servers', { headers }),
-                fetch('/api/admin/macros', { headers })
+                fetch('/api/admin/servers', { headers: getHeaders() }),
+                fetch('/api/admin/macros', { headers: getHeaders() })
             ]);
             if (srvRes.ok) servers = await srvRes.json();
             if (macRes.ok) macros = await macRes.json();
@@ -26,7 +29,7 @@
         const form = e.target;
         try {
             await fetch('/api/admin/servers', {
-                method: 'POST', headers,
+                method: 'POST', headers: getHeaders(),
                 body: JSON.stringify({ name: form.serverName.value, public_key: form.publicKey.value })
             });
             form.reset();
@@ -37,7 +40,7 @@
     async function handleDeregister(server) {
         if (!confirm(`Deregister ${server.Name}? This does NOT deprovision users currently on it.`)) return;
         try {
-            await fetch(`/api/admin/servers/${server.ID}`, { method: 'DELETE', headers });
+            await fetch(`/api/admin/servers/${server.ID}`, { method: 'DELETE', headers: getHeaders() });
             fetchData();
         } catch (err) { alert(err.message); }
     }

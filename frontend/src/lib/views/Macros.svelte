@@ -16,13 +16,16 @@
 
     let isSaving = false;
 
-    const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer test-admin' };
+    const getHeaders = () => ({ 
+            'Content-Type': 'application/json', 
+            'Authorization': 'Bearer ' + localStorage.getItem('nexus_jwt') 
+        });
 
     async function fetchData() {
         try {
             const [macRes, srvRes] = await Promise.all([
-                fetch('/api/admin/macros', { headers }),
-                fetch('/api/admin/servers', { headers })
+                fetch('/api/admin/macros', { headers: getHeaders() }),
+                fetch('/api/admin/servers', { headers: getHeaders() })
             ]);
             if (macRes.ok) macros = await macRes.json() || [];
             if (srvRes.ok) {
@@ -105,7 +108,7 @@
 
         try {
             const res = await fetch(url, {
-                method, headers,
+                method, headers: getHeaders(),
                 body: JSON.stringify({ name: formName, description: formDesc, steps: formSteps })
             });
             const data = await res.json();
@@ -121,7 +124,7 @@
     async function handleDelete(id, name) {
         if (!confirm(`Are you sure you want to permanently delete the pipeline "${name}"?`)) return;
         try {
-            const res = await fetch(`/api/admin/macros/${id}`, { method: 'DELETE', headers });
+            const res = await fetch(`/api/admin/macros/${id}`, { method: 'DELETE', headers: getHeaders() });
             if (!res.ok) throw new Error("Failed to delete pipeline");
             
             addToast("Pipeline deleted.", "success");

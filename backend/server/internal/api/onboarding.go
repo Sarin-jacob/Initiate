@@ -7,12 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
 	"github.com/Sarin-jacob/Initiate/internal/agenthub"
-	"github.com/Sarin-jacob/Initiate/internal/crypto"
 	"github.com/Sarin-jacob/Initiate/internal/db"
 	"github.com/Sarin-jacob/Initiate/internal/gitea"
 )
@@ -24,28 +22,13 @@ type CompleteOnboardingRequest struct {
 
 func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient *gitea.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rawToken := chi.URLParam(r, "token")
-		if rawToken == "" {
-			http.Error(w, "Missing invite token", http.StatusBadRequest)
-			return
-		}
-		tokenHash := crypto.HashToken(rawToken)
-
 		var req CompleteOnboardingRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid payload", http.StatusBadRequest)
 			return
 		}
 
-		var invite db.Invitation
-		if err := database.Where("token_hash = ?", tokenHash).First(&invite).Error; err != nil {
-			http.Error(w, "Invalid or expired invite token", http.StatusUnauthorized)
-			return
-		}
-		if invite.UsedAt != nil || time.Now().After(invite.ExpiresAt) {
-			http.Error(w, "This invite token has expired or already been used", http.StatusUnauthorized)
-			return
-		}
+		invite := r.Context().Value("invite").(db.Invitation)
 
 		var user db.User
 		if err := database.First(&user, "id = ?", invite.UserID).Error; err != nil {

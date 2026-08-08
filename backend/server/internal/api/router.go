@@ -59,16 +59,27 @@ func NewRouter(
     })
 
     r.Get("/api/docs/{slug}", HandleGetPublicPage(database))
+    r.Post("/api/admin/login", HandleAdminLogin())
 
     // --- 2. Invite / Onboarding API (Unauthenticated initially, tokens checked inside handlers) ---
-    r.Route("/api/invite", func(r chi.Router) {
-        r.Get("/{token}", HandleGetInviteData(database))
-        r.Post("/{token}/complete", HandleCompleteOnboarding(database, hub, giteaClient))
-        r.Get("/{token}/page/{slug}", HandleGetPageBySlug(database))
-    })
+    r.Route("/api/invite/{token}", func(r chi.Router) {
+		// Apply the database-aware middleware
+		r.Use(RequireInviteToken(database))
+
+		// These handlers now securely trust that the token is valid!
+		r.Get("/", HandleGetInviteData(database))
+		r.Get("/page/{slug}", HandleGetPageBySlug(database))
+		r.Post("/complete", HandleCompleteOnboarding(database, hub, giteaClient))
+	})
 
     // --- 3. Edge Agent WebSocket (Secured by Ed25519) ---
-    r.With(RequireEdgeAuth).Get("/agent/ws", hub.HandleWS)
+    r.Route("/api/ws", func(r chi.Router) {
+		// Inject the database into the middleware
+		r.Use(RequireEdgeAuth(database)) 
+		
+		// If the middleware passes, upgrade the connection!
+		r.Get("/agent", hub.HandleWS) 
+	})
 
     // --- 4. Frontend SPA Serve (Catch-all) ---
     fs := http.FileServer(http.Dir("./static"))
