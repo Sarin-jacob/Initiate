@@ -23,6 +23,10 @@ type SavePageRequest struct {
 	Content string `json:"content"`
 }
 
+type PagePreviewRequest struct {
+	Content string `json:"content"`
+}
+
 func HandleListPages(database *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var pages []db.Page
@@ -95,6 +99,37 @@ func HandleGetPageBySlug(database *gorm.DB) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
 			"title":        page.Title,
+			"html_content": renderedHTML,
+		})
+	}
+}
+
+// HandlePreviewPage accepts raw markdown, injects mock data, and returns rendered HTML
+func HandlePreviewPage() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req PagePreviewRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid payload", http.StatusBadRequest)
+			return
+		}
+
+		// Inject realistic mock data for the admin preview
+		mockData := markdown.OnboardingTemplateData{
+			Username:  "JaneDoe",
+			Email:     "jane.doe@company.com",
+			GiteaURL:  "https://gitea.example.com",
+			SystemURL: "https://nexus.example.com",
+			Token:     "preview-token-xyz-12345",
+		}
+
+		renderedHTML, err := markdown.RenderGFM(req.Content, mockData)
+		if err != nil {
+			http.Error(w, "Failed to render markdown preview", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
 			"html_content": renderedHTML,
 		})
 	}

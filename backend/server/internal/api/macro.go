@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
@@ -75,5 +76,75 @@ func HandleCreateMacro(database *gorm.DB) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(macro)
+	}
+}
+
+// HandleUpdateMacro processes edits to an existing pipeline
+func HandleUpdateMacro(database *gorm.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		macroID := chi.URLParam(r, "id")
+		if macroID == "" {
+			http.Error(w, "Macro ID is required", http.StatusBadRequest)
+			return
+		}
+
+		var payload MacroPayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Invalid payload", http.StatusBadRequest)
+			return
+		}
+
+		if len(payload.Steps) == 0 {
+			http.Error(w, "A macro must contain at least one step", http.StatusBadRequest)
+			return
+		}
+
+		var macro db.Macro
+		if err := database.First(&macro, "id = ?", macroID).Error; err != nil {
+			http.Error(w, "Macro not found", http.StatusNotFound)
+			return
+		}
+
+		stepsJSON, err := json.Marshal(payload.Steps)
+		if err != nil {
+			http.Error(w, "Failed to encode macro steps", http.StatusInternalServerError)
+			return
+		}
+
+		// Update fields
+		macro.Name = payload.Name
+		macro.Description = payload.Description
+		macro.Steps = string(stepsJSON)
+		macro.UpdatedAt = time.Now()
+
+		if err := database.Save(&macro).Error; err != nil {
+			http.Error(w, "Failed to update macro. Name must remain unique.", http.StatusConflict)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(macro)
+	}
+}
+
+// HandleDeleteMacro completely removes a pipeline
+func HandleDeleteMacro(database *gorm.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		macroID := chi.URLParam(r, "id")
+		if macroID == "" {
+			http.Error(w, "Macro ID is required", http.StatusBadRequest)
+			return
+		}
+
+		if err := database.Delete(&db.Macro{}, "id = ?", macroID).Error; err != nil {
+			http.Error(w, "Failed to delete macro", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":  "success",
+			"message": "Macro deleted successfully",
+		})
 	}
 }

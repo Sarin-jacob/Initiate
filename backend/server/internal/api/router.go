@@ -36,6 +36,7 @@ func NewRouter(
 
         r.Get("/pages", HandleListPages(database))
         r.Post("/pages", HandleSavePage(database))
+        r.Post("/pages/preview", HandlePreviewPage())
         
         // Stubs for future implementation
         r.Get("/users", HandleListUsers(database))
@@ -47,6 +48,8 @@ func NewRouter(
 
         r.Get("/macros", HandleGetMacros(database))
         r.Post("/macros", HandleCreateMacro(database))
+        r.Put("/macros/{id}", HandleUpdateMacro(database))
+        r.Delete("/macros/{id}", HandleDeleteMacro(database))
     })
 
     // --- 2. Invite / Onboarding API (Unauthenticated initially, tokens checked inside handlers) ---
