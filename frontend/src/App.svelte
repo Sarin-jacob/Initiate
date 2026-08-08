@@ -1,9 +1,9 @@
 <script>
     import { onMount } from 'svelte';
+    import Toast from './lib/components/ui/Toast.svelte';
     import Onboarding from './lib/Onboarding.svelte';
-    import PublicDoc from './lib/PublicDoc.svelte'; // The component we built in Phase 1
+    import PublicDoc from './lib/PublicDoc.svelte';
     
-    // Admin Views
     import Settings from './lib/views/Settings.svelte';
     import Pages from './lib/views/Pages.svelte';
     import Users from './lib/views/Users.svelte';
@@ -12,12 +12,12 @@
 
     const urlParams = new URLSearchParams(window.location.search);
     const inviteToken = urlParams.get('token');
-    const docSlug = urlParams.get('docs'); // e.g., ?docs=ssh-quickstart
+    const docSlug = urlParams.get('docs');
 
     let currentView = 'users'; 
     let isAppReady = false;
     let systemTheme = localStorage.getItem('nexus_theme') || 'corporate';
-    let cmsDocs = []; // Holds all available documentation links
+    let cmsDocs = []; 
 
     $: {
         if (typeof window !== 'undefined') {
@@ -27,7 +27,6 @@
     }
 
     onMount(async () => {
-        // If external user hits a public route, skip admin fetching
         if (inviteToken || docSlug) {
             isAppReady = true;
             return;
@@ -43,34 +42,39 @@
                 const data = await setRes.json();
                 if (data.theme && data.theme !== systemTheme) systemTheme = data.theme;
             }
-            
-            if (pagesRes.ok) {
-                cmsDocs = await pagesRes.json() || [];
-            }
+            if (pagesRes.ok) cmsDocs = await pagesRes.json() || [];
         } catch (err) { console.error("Global fetch failed", err); }
         finally { isAppReady = true; }
     });
+
+    function navigate(view) {
+        currentView = view;
+        const drawer = document.getElementById('admin-drawer');
+        if (drawer) drawer.checked = false; 
+    }
 </script>
+
+<Toast />
 
 <div class="min-h-screen bg-base-200 text-base-content font-sans text-lg">
     {#if !isAppReady}
-        <div class="flex items-center justify-center min-h-screen">
-            <span class="loading loading-spinner loading-lg text-primary"></span>
+        <!-- UX Polish: Skeleton Loaders instead of spinner -->
+        <div class="p-10 space-y-4 max-w-7xl mx-auto mt-10">
+            <div class="skeleton h-12 w-64"></div>
+            <div class="skeleton h-64 w-full"></div>
+            <div class="skeleton h-32 w-full"></div>
         </div>
     
-    <!-- External Public Routing -->
     {:else if inviteToken}
         <Onboarding token={inviteToken} />
     {:else if docSlug}
         <PublicDoc slug={docSlug} />
     
-    <!-- Internal Admin Routing -->
     {:else}
         <div class="drawer lg:drawer-open">
             <input id="admin-drawer" type="checkbox" class="drawer-toggle" />
             <div class="drawer-content flex flex-col">
                 
-                <!-- TOPBAR -->
                 <div class="navbar bg-base-100 shadow-sm border-b border-base-300 px-4">
                     <div class="flex-none lg:hidden">
                         <label for="admin-drawer" class="btn btn-square btn-ghost">
@@ -82,7 +86,6 @@
                     <div class="flex-1 hidden lg:block"></div>
                     
                     <div class="flex-none gap-2">
-                        <!-- Documentation Quick Links Dropdown -->
                         <div class="dropdown dropdown-end">
                             <div tabindex="0" role="button" class="btn btn-ghost flex gap-2">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" /></svg>
@@ -98,10 +101,9 @@
                             </ul>
                         </div>
 
-                        <!-- Settings Cog -->
                         <div class="tooltip tooltip-left" data-tip="System Settings">
-                            <button class="btn btn-square btn-ghost {currentView === 'settings' ? 'bg-base-200' : ''}" on:click={() => currentView = 'settings'}>
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+                            <button class="btn btn-square btn-ghost {currentView === 'settings' ? 'bg-base-200' : ''}" on:click={() => navigate('settings')}>
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                             </button>
                         </div>
                     </div>
@@ -116,7 +118,6 @@
                 </main>
             </div> 
             
-            <!-- SIDEBAR -->
             <div class="drawer-side border-r border-base-300 shadow-xl z-50">
                 <label for="admin-drawer" class="drawer-overlay"></label> 
                 <ul class="menu p-6 w-72 min-h-full bg-base-100 text-base-content flex flex-col gap-2 text-lg">
@@ -124,10 +125,10 @@
                         <div class="w-10 h-10 rounded-xl bg-primary text-primary-content flex items-center justify-center font-bold text-xl shadow-sm">N</div>
                         <span class="text-2xl font-bold tracking-tight">NexusIAM</span>
                     </li>
-                    <li><a class={currentView === 'users' ? 'active' : ''} on:click={() => currentView = 'users'}>Users & Access</a></li>
-                    <li><a class={currentView === 'agents' ? 'active' : ''} on:click={() => currentView = 'agents'}>Edge Agents</a></li>
-                    <li><a class={currentView === 'macros' ? 'active' : ''} on:click={() => currentView = 'macros'}>Provisioning Macros</a></li>
-                    <li><a class={currentView === 'pages' ? 'active' : ''} on:click={() => currentView = 'pages'}>CMS & Guides</a></li>
+                    <li><button class={currentView === 'users' ? 'active font-bold' : ''} on:click={() => navigate('users')}>Users & Access</button></li>
+                    <li><button class={currentView === 'agents' ? 'active font-bold' : ''} on:click={() => navigate('agents')}>Edge Agents</button></li>
+                    <li><button class={currentView === 'macros' ? 'active font-bold' : ''} on:click={() => navigate('macros')}>Provisioning Macros</button></li>
+                    <li><button class={currentView === 'pages' ? 'active font-bold' : ''} on:click={() => navigate('pages')}>CMS & Guides</button></li>
                 </ul>
             </div>
         </div>
