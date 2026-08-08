@@ -9,7 +9,7 @@ export default defineConfig({
   ],
   build: {
     // Output directly to the Go server's static directory
-    outDir: '../server/static',
+    outDir: '../static',
     emptyOutDir: true
   },
   server: {
