@@ -62,83 +62,52 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 		var accesses []db.UserAccess
 		database.Where("user_id = ?", user.ID).Find(&accesses)
 
+		payload := map[string]interface{}{
+			"username":       user.Username,
+			"password":       req.Password,
+			"email":          user.Email, // Needed for Gitea Virtual Agent
+			"ssh_public_key": req.SSHPublicKey,
+		}
+
+		// UNIFIED PIPELINE EXECUTION
 		for _, access := range accesses {
-			if access.TargetType == "GITEA" {
-				err := giteaClient.CreateUser(r.Context(), user.Username, user.Email, req.Password)
-				if err != nil {
-					log.Printf("Failed to provision Gitea for %s: %v", user.Username, err)
-					database.Model(&access).Update("status", "FAILED")
-				} else {
-					database.Model(&access).Update("status", "ACTIVE")
+			if access.ProvisionMacroID == "" {
+				continue
+			}
+
+			var macro db.Macro
+			if err := database.First(&macro, "id = ?", access.ProvisionMacroID).Error; err != nil {
+				log.Printf("Macro %s not found for target %s", access.ProvisionMacroID, access.TargetID)
+				database.Model(&access).Update("status", "FAILED")
+				continue
+			}
+
+			var steps []MacroStep
+			json.Unmarshal([]byte(macro.Steps), &steps)
+
+			pipelineSuccess := true
+			for _, step := range steps {
+				event := fmt.Sprintf("%s:%s", step.Module, step.Action)
+				log.Printf("Executing %s on target %s...", event, access.TargetID)
+
+				res, err := hub.DispatchTaskSync(access.TargetID, event, payload, 30*time.Second)
+				if err != nil || res.Status == "FAILED" {
+					log.Printf("Pipeline aborted on %s: Step '%s' failed. Err/Output: %v", access.TargetID, event, res.Output)
+					pipelineSuccess = false
+					break // Halt pipeline on failure
 				}
 			}
 
-			if access.TargetType == "SERVER" {
-				payload := map[string]interface{}{
-					"username":       user.Username,
-					"password":       req.Password,
-					"ssh_public_key": req.SSHPublicKey,
-				}
-				
-				// 1. Parse the pipeline steps from the database
-				var steps []MacroStep
-				if access.GrantedModules != "" {
-					// Attempt to unmarshal as the new strict Macro pipeline array
-					if err := json.Unmarshal([]byte(access.GrantedModules), &steps); err != nil {
-						// FALLBACK: If this is an older invite using the string array ["system_user"]
-						var oldModules []string
-						if fallbackErr := json.Unmarshal([]byte(access.GrantedModules), &oldModules); fallbackErr == nil {
-							for _, mod := range oldModules {
-								steps = append(steps, MacroStep{Module: mod, Action: "create"})
-								if mod == "system_user" { // Preserve the old hardcoded rule for legacy invites
-									steps = append(steps, MacroStep{Module: mod, Action: "set_password"})
-								}
-							}
-						} else {
-							log.Printf("Failed to decode pipeline steps for server %s: %v", access.TargetID, err)
-							continue
-						}
-					}
-				}
-
-				// 2. Execute the Pipeline Synchronously
-				pipelineSuccess := true
-				
-				for _, step := range steps {
-					event := fmt.Sprintf("%s:%s", step.Module, step.Action)
-					log.Printf("Executing %s on agent %s...", event, access.TargetID)
-
-					// Block and wait up to 30 seconds for the Agent to complete this specific action
-					res, err := hub.DispatchTaskSync(access.TargetID, event, payload, 30*time.Second)
-					
-					if err != nil {
-						log.Printf("Pipeline aborted on %s: Timeout or connection lost during '%s'", access.TargetID, event)
-						pipelineSuccess = false
-						break // HALT PIPELINE
-					}
-
-					if res.Status == "FAILED" {
-						log.Printf("Pipeline aborted on %s: Step '%s' failed. Error: %s", access.TargetID, event, res.Output)
-						pipelineSuccess = false
-						break // HALT PIPELINE
-					}
-					
-					log.Printf("Step '%s' succeeded on %s", event, access.TargetID)
-				}
-
-				// 3. Update Database Status based on Pipeline success
-				if pipelineSuccess {
-					database.Model(&access).Update("status", "ACTIVE")
-				} else {
-					database.Model(&access).Update("status", "FAILED")
-				}
+			if pipelineSuccess {
+				database.Model(&access).Update("status", "ACTIVE")
+			} else {
+				database.Model(&access).Update("status", "FAILED")
 			}
 		}
 
-		// Finalize the Onboarding (Mark invite used, update user)
+		// Finalize Onboarding
 		tx := database.Begin()
-		now := time.Now()
-		tx.Model(&invite).Update("used_at", now)
+		tx.Model(&invite).Update("used_at", time.Now())
 		tx.Model(&user).Updates(map[string]interface{}{
 			"password_hash":  string(hashBytes),
 			"ssh_public_key": req.SSHPublicKey,
@@ -147,9 +116,6 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 		tx.Commit()
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"status":  "success",
-			"message": "Onboarding complete. Check dashboard for provisioning status.",
-		})
+		json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": "Provisioning pipelines completed."})
 	}
 }

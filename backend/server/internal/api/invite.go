@@ -17,19 +17,24 @@ import (
 	"github.com/Sarin-jacob/Initiate/internal/markdown"
 )
 
-// NEW: Structs to match the updated Svelte UI Payload
 type EdgeAllocation struct {
 	ServerID string   `json:"server_id"`
 	Modules  []string `json:"modules"`
 }
 
 type InviteUserRequest struct {
-	Username        string           `json:"username"`
-	Email           string           `json:"email"`
-	ProvisionGitea  bool             `json:"provision_gitea"`
-	EdgeAllocations []EdgeAllocation `json:"edge_allocations"`
-	ExpireAmount    int              `json:"expire_amount"`
-	ExpireUnit      string           `json:"expire_unit"`
+	Username     string             `json:"username"`
+	Email        string             `json:"email"`
+	Allocations  []TargetAllocation `json:"allocations"` // Unifies Gitea and Servers
+	ExpireAmount int                `json:"expire_amount"`
+	ExpireUnit   string             `json:"expire_unit"`
+}
+
+type TargetAllocation struct {
+	TargetID           string `json:"target_id"`            // e.g., "internal-gitea" or "edge-uuid"
+	TargetType         string `json:"target_type"`          // "GITEA" or "SERVER"
+	ProvisionMacroID   string `json:"provision_macro_id"`   // NEW
+	DeprovisionMacroID string `json:"deprovision_macro_id"` // NEW
 }
 
 // InviteDataResponse is the JSON payload sent to the frontend
@@ -105,7 +110,7 @@ func HandleInviteUser(database *gorm.DB, emailer *mailer.Mailer, baseSystemURL s
 			return
 		}
 
-		// 2. Fetch the default CMS page for Onboarding
+		// 2. Fetch the default CMS page for Onboarding (RESTORED)
 		var defaultSlugSetting db.SystemSetting
 		database.Where("key = ?", "default_invite_slug").First(&defaultSlugSetting)
 		
@@ -146,10 +151,10 @@ func HandleInviteUser(database *gorm.DB, emailer *mailer.Mailer, baseSystemURL s
 		// Create User (Status defaults to PENDING)
 		userID := uuid.New().String()
 		user := db.User{
-			ID:       userID,
-			Username: req.Username,
-			Email:    req.Email,
-			Status:   "PENDING",
+			ID:        userID,
+			Username:  req.Username,
+			Email:     req.Email,
+			Status:    "PENDING",
 			ExpiresAt: expiresAt,
 		}
 		if err := tx.Create(&user).Error; err != nil {
@@ -157,21 +162,17 @@ func HandleInviteUser(database *gorm.DB, emailer *mailer.Mailer, baseSystemURL s
 			http.Error(w, "Failed to create user (username/email may already exist)", http.StatusConflict)
 			return
 		}
-
-		// Map Gitea Access
-		if req.ProvisionGitea {
-			tx.Create(&db.UserAccess{UserID: userID, TargetType: "GITEA", TargetID: "central-gitea"})
-		}
 		
-		// Map Edge Server Access & Serialize Granted Modules
-		for _, alloc := range req.EdgeAllocations {
-			modulesJSON, _ := json.Marshal(alloc.Modules)
+		// NEW: Map Unified Access (Handles both Gitea and Edge Servers identically)
+		for _, alloc := range req.Allocations {
 			tx.Create(&db.UserAccess{
-				ID:             uuid.New().String(),
-				UserID:         userID,
-				TargetType:     "SERVER",
-				TargetID:       alloc.ServerID,
-				GrantedModules: string(modulesJSON), // e.g. '["system_user", "ssh_key"]'
+				ID:                 uuid.New().String(),
+				UserID:             userID,
+				TargetType:         alloc.TargetType,
+				TargetID:           alloc.TargetID,
+				ProvisionMacroID:   alloc.ProvisionMacroID,
+				DeprovisionMacroID: alloc.DeprovisionMacroID,
+				Status:             "PENDING", // Remains pending until they complete onboarding
 			})
 		}
 

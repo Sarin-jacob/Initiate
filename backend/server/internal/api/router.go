@@ -32,7 +32,7 @@ func NewRouter(
         r.Use(RequireAdmin)
         
         r.Post("/users/invite", HandleInviteUser(database, emailer, baseSystemURL))
-        r.Delete("/users/{id}", HandleDeprovisionUser(database, hub, giteaClient))
+        r.Delete("/users/{id}", HandleDeprovisionUser(database, hub))
 
         r.Get("/pages", HandleListPages(database))
         r.Post("/pages", HandleSavePage(database))
@@ -48,7 +48,7 @@ func NewRouter(
 
         r.Put("/users/{id}/expire", HandleUpdateUserExpiration(database))
         r.Post("/users/{id}/macro", HandleApplyMacro(database, hub))
-        r.Post("/users/{id}/deprovision", HandleDeprovisionUser(database, hub, giteaClient))
+        r.Post("/users/{id}/deprovision", HandleDeprovisionUser(database, hub))
 
         r.Get("/macros", HandleGetMacros(database))
         r.Post("/macros", HandleCreateMacro(database))

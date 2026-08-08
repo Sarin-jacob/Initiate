@@ -48,6 +48,8 @@ type UserAccess struct {
 	TargetType     string `gorm:"not null"` // "GITEA" or "SERVER"
 	TargetID       string `gorm:"not null"` // Gitea identifier or Edge Server UUID
 	GrantedModules string `gorm:"type:text"` // NEW: Stores JSON array of allowed modules e.g., '["system_user", "ssh_key"]'
+	ProvisionMacroID   string `gorm:"type:uuid"` 
+	DeprovisionMacroID string `gorm:"type:uuid"`
 	Status         string `gorm:"default:'PENDING'"`
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
