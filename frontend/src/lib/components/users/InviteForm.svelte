@@ -76,8 +76,8 @@
 
 <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm rounded-t-2xl">
     <input type="checkbox" /> 
-    <div class="collapse-title text-lg font-bold p-6 bg-primary rounded-t-2xl text-primary-content">+ Provision New User Access</div>
-    <div class="collapse-content border-t border-base-200 p-6">
+    <div class="collapse-title text-lg font-bold p-4 bg-primary rounded-t-2xl text-primary-content">+ Provision New User Access</div>
+    <div class="collapse-content border-t border-base-200 p-4">
         <form on:submit={handleInvite} class="space-y-6 pt-4">
             {#if alertMsg}
                 <div class="alert {alertMsg.includes('must select') || alertMsg.includes('Failed') ? 'alert-error' : 'alert-success'} shadow-sm mb-4">
