@@ -98,6 +98,8 @@ func InitDB(dsn string) *gorm.DB {
 	if err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
+
+	seedDefaultPages(database)
 	seedDefaultSettings(database)
 	seedVirtualAgents(database)
 
@@ -105,20 +107,44 @@ func InitDB(dsn string) *gorm.DB {
 	return database
 }
 
-func seedDefaultSettings(db *gorm.DB) {
-	defaults := map[string]string{
-		"theme":               "corporate",
-		"gitea_url":           "http://localhost:3000",
-		"default_invite_slug": "index", // Which markdown page to load first
-		"user_expire_days":    "0",       // 0 means never expire
+func seedDefaultPages(db *gorm.DB) {
+	pages := []Page{
+		{
+			ID:      "page-invite",
+			Slug:    "default-onboarding",
+			Title:   "Default Account Setup",
+			Content: "## Welcome {{.Username}}!\n\nYour administrator has granted you access. Please configure your permanent credentials below to activate your infrastructure access.\n\n> **Note:** SSH keys should be Ed25519 format.",
+		},
+		{
+			ID:      "page-email",
+			Slug:    "default-email",
+			Title:   "Default Welcome Email",
+			Content: "Hello {{.Username}},\n\nYou have been invited to the infrastructure portal. Click the link below to configure your access:\n\n{{.InviteURL}}\n\n*This link expires in 48 hours.*",
+		},
+		{
+			ID:      "page-guide",
+			Slug:    "ssh-quickstart",
+			Title:   "SSH Quickstart Guide",
+			Content: "## Generating an SSH Key\n\nIf you do not have an Ed25519 key, generate one by opening your terminal and running:\n\n```bash\nssh-keygen -t ed25519 -C \"{{.Email}}\"\n```\n\nCopy the contents of the `.pub` file and paste it into the onboarding form.",
+		},
 	}
 
-	for key, val := range defaults {
-		var setting SystemSetting
-		// Only create if it doesn't exist
-		if err := db.Where("key = ?", key).First(&setting).Error; err != nil {
-			db.Create(&SystemSetting{Key: key, Value: val})
-		}
+	for _, p := range pages {
+		// Use FirstOrCreate to ensure we don't overwrite user edits on server reboot
+		db.Where("slug = ?", p.Slug).FirstOrCreate(&p)
+	}
+}
+
+func seedDefaultSettings(db *gorm.DB) {
+	settings := []SystemSetting{
+		{Key: "theme", Value: "corporate"},
+		{Key: "default_invite_slug", Value: "default-onboarding"},
+		{Key: "default_email_slug", Value: "default-email"}, // NEW
+		{Key: "user_expire_days", Value: "0"},
+		{Key: "gitea_url", Value: ""},
+	}
+	for _, s := range settings {
+		db.Where("key = ?", s.Key).FirstOrCreate(&s)
 	}
 }
 

@@ -134,3 +134,19 @@ func HandlePreviewPage() http.HandlerFunc {
 		})
 	}
 }
+
+// HandleGetPublicPage returns a page without requiring JWT authentication
+func HandleGetPublicPage(database *gorm.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		slug := chi.URLParam(r, "slug")
+		
+		var page db.Page
+		if err := database.Where("slug = ?", slug).First(&page).Error; err != nil {
+			http.Error(w, "Page not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(page)
+	}
+}
