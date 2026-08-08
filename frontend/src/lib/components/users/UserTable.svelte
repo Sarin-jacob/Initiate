@@ -55,7 +55,7 @@
                     <tr>
                         <td>
                             <div class="flex items-center gap-4">
-                                <Avatar username={user.Username} giteaUrl={giteaUrl} size="12" />
+                                <Avatar username={user.Username} giteaUrl={giteaUrl} sizeClass="w-12 h-12" />
                                 <div>
                                     <div class="font-bold text-lg">{user.Username}</div>
                                     <div class="text-sm opacity-60">{user.Email}</div>
