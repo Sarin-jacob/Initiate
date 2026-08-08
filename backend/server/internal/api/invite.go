@@ -23,11 +23,12 @@ type EdgeAllocation struct {
 }
 
 type InviteUserRequest struct {
-	Username     string             `json:"username"`
-	Email        string             `json:"email"`
-	Allocations  []TargetAllocation `json:"allocations"` // Unifies Gitea and Servers
-	ExpireAmount int                `json:"expire_amount"`
-	ExpireUnit   string             `json:"expire_unit"`
+	Username     string   `json:"username"`
+	Email        string   `json:"email"`
+	ExpireAmount int      `json:"expire_amount"`
+	ExpireUnit   string   `json:"expire_unit"`
+	TargetIDs    []string `json:"target_ids"` // Simplest payload
+	DocSlugs     []string `json:"doc_slugs"`  // Docs to inject
 }
 
 type TargetAllocation struct {
@@ -99,118 +100,86 @@ func HandleInviteUser(database *gorm.DB, emailer *mailer.Mailer, baseSystemURL s
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req InviteUserRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request payload", http.StatusBadRequest)
+			http.Error(w, "Invalid payload", http.StatusBadRequest)
 			return
 		}
 
-		// 1. Generate secure token
-		rawToken, tokenHash, err := crypto.GenerateInviteToken()
-		if err != nil {
-			http.Error(w, "Failed to generate token", http.StatusInternalServerError)
-			return
-		}
+		rawToken, tokenHash, _ := crypto.GenerateInviteToken()
 
-		// 2. Fetch the default CMS page for Onboarding (RESTORED)
-		var defaultSlugSetting db.SystemSetting
-		database.Where("key = ?", "default_invite_slug").First(&defaultSlugSetting)
+		// 1. Prepare CMS Markdown
+		var defaultSlug db.SystemSetting
+		database.Where("key = ?", "default_invite_slug").First(&defaultSlug)
 		
+		markdownContent := "## Welcome {{.Username}}!\n\nPlease set your password below."
 		var defaultPage db.Page
-		markdownContent := "## Welcome {{.Username}}!\n\nPlease set your password below to finalize your account."
-		if defaultSlugSetting.Value != "" {
-			if err := database.Where("slug = ?", defaultSlugSetting.Value).First(&defaultPage).Error; err == nil {
-				markdownContent = defaultPage.Content
+		if defaultSlug.Value != "" && database.Where("slug = ?", defaultSlug.Value).First(&defaultPage).Error == nil {
+			markdownContent = defaultPage.Content
+		}
+
+		// Inject selected documentation directly into the markdown payload
+		if len(req.DocSlugs) > 0 {
+			markdownContent += "\n\n---\n### Attached Documentation:\n"
+			for _, slug := range req.DocSlugs {
+				var doc db.Page
+				if database.Where("slug = ?", slug).First(&doc).Error == nil {
+					// The frontend router intercepts /api/invite/.../page/ URLs!
+					markdownContent += fmt.Sprintf("* [%s](/api/invite/{{.Token}}/page/%s)\n", doc.Title, doc.Slug)
+				}
 			}
 		}
 
+		// 2. Math for Expiration
 		var expiresAt *time.Time
 		if req.ExpireAmount > 0 {
 			expTime := time.Now()
 			switch req.ExpireUnit {
-			case "days":
-				expTime = expTime.AddDate(0, 0, req.ExpireAmount)
-			case "weeks":
-				expTime = expTime.AddDate(0, 0, req.ExpireAmount*7)
-			case "months":
-				expTime = expTime.AddDate(0, req.ExpireAmount, 0)
-			case "years":
-				expTime = expTime.AddDate(req.ExpireAmount, 0, 0)
-			default:
-				expTime = expTime.AddDate(0, 0, req.ExpireAmount) // Default to days
+			case "days": expTime = expTime.AddDate(0, 0, req.ExpireAmount)
+			case "weeks": expTime = expTime.AddDate(0, 0, req.ExpireAmount*7)
+			case "months": expTime = expTime.AddDate(0, req.ExpireAmount, 0)
+			case "years": expTime = expTime.AddDate(req.ExpireAmount, 0, 0)
+			default: expTime = expTime.AddDate(0, 0, req.ExpireAmount)
 			}
 			expiresAt = &expTime
 		}
 
-		// 3. Start a Database Transaction
 		tx := database.Begin()
 		defer func() {
-			if r := recover(); r != nil {
-				tx.Rollback()
-			}
+			if r := recover(); r != nil { tx.Rollback() }
 		}()
 
-		// Create User (Status defaults to PENDING)
 		userID := uuid.New().String()
 		user := db.User{
-			ID:        userID,
-			Username:  req.Username,
-			Email:     req.Email,
-			Status:    "PENDING",
-			ExpiresAt: expiresAt,
+			ID: userID, Username: req.Username, Email: req.Email, 
+			Status: "PENDING", ExpiresAt: expiresAt,
 		}
-		if err := tx.Create(&user).Error; err != nil {
-			tx.Rollback()
-			http.Error(w, "Failed to create user (username/email may already exist)", http.StatusConflict)
-			return
+		if tx.Create(&user).Error != nil {
+			tx.Rollback(); http.Error(w, "Username/Email conflict", http.StatusConflict); return
 		}
-		
-		// NEW: Map Unified Access (Handles both Gitea and Edge Servers identically)
-		for _, alloc := range req.Allocations {
+
+		// Map basic target access
+		for _, targetID := range req.TargetIDs {
+			targetType := "SERVER"
+			if targetID == "internal-gitea" { targetType = "GITEA" }
 			tx.Create(&db.UserAccess{
-				ID:                 uuid.New().String(),
-				UserID:             userID,
-				TargetType:         alloc.TargetType,
-				TargetID:           alloc.TargetID,
-				ProvisionMacroID:   alloc.ProvisionMacroID,
-				DeprovisionMacroID: alloc.DeprovisionMacroID,
-				Status:             "PENDING", // Remains pending until they complete onboarding
+				ID: uuid.New().String(), UserID: userID, TargetType: targetType, TargetID: targetID,
 			})
 		}
 
-		// Create Invitation Record (Expires in 48 hours)
-		expiresInHours := 48
 		invite := db.Invitation{
-			ID:               uuid.New().String(),
-			UserID:           userID,
-			TokenHash:        tokenHash, 
-			MarkdownTemplate: markdownContent, // Sourced from CMS
-			ExpiresAt:        time.Now().Add(time.Duration(expiresInHours) * time.Hour),
+			ID: uuid.New().String(), UserID: userID, TokenHash: tokenHash, 
+			MarkdownTemplate: markdownContent, ExpiresAt: time.Now().Add(48 * time.Hour),
 		}
-		if err := tx.Create(&invite).Error; err != nil {
-			tx.Rollback()
-			http.Error(w, "Failed to create invitation record", http.StatusInternalServerError)
-			return
-		}
+		tx.Create(&invite)
 
-		// 4. Dispatch Email
+		// Dispatch email
 		inviteURL := fmt.Sprintf("%s/invite?token=%s", baseSystemURL, rawToken)
-		if err := emailer.SendInvite(req.Email, req.Username, inviteURL, expiresInHours); err != nil {
-			tx.Rollback() 
-			http.Error(w, "Failed to send invitation email", http.StatusInternalServerError)
-			return
+		if emailer.SendInvite(req.Email, req.Username, inviteURL, 48) != nil {
+			tx.Rollback(); http.Error(w, "Email failed", http.StatusInternalServerError); return
 		}
 
-		// 5. Commit Transaction
-		if err := tx.Commit().Error; err != nil {
-			http.Error(w, "Database transaction failed", http.StatusInternalServerError)
-			return
-		}
-
+		tx.Commit()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{
-			"status":  "success",
-			"message": "User invited and email dispatched",
-			"user_id": userID,
-		})
+		json.NewEncoder(w).Encode(map[string]string{"status": "success", "user_id": userID})
 	}
 }

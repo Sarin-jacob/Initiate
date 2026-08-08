@@ -71,13 +71,19 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 
 		// UNIFIED PIPELINE EXECUTION
 		for _, access := range accesses {
-			if access.ProvisionMacroID == "" {
+			// Look up the actual Server/Virtual Agent to find out what its macro is
+			var target db.TargetServer
+			if err := database.First(&target, "id = ?", access.TargetID).Error; err != nil {
 				continue
 			}
 
+			if target.ProvisionMacroID == "" {
+				database.Model(&access).Update("status", "ACTIVE")
+				continue // Agent opts out of automated provisioning
+			}
+
 			var macro db.Macro
-			if err := database.First(&macro, "id = ?", access.ProvisionMacroID).Error; err != nil {
-				log.Printf("Macro %s not found for target %s", access.ProvisionMacroID, access.TargetID)
+			if err := database.First(&macro, "id = ?", target.ProvisionMacroID).Error; err != nil {
 				database.Model(&access).Update("status", "FAILED")
 				continue
 			}
@@ -88,13 +94,13 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 			pipelineSuccess := true
 			for _, step := range steps {
 				event := fmt.Sprintf("%s:%s", step.Module, step.Action)
-				log.Printf("Executing %s on target %s...", event, access.TargetID)
+				log.Printf("Executing %s on target %s...", event, target.ID)
 
-				res, err := hub.DispatchTaskSync(access.TargetID, event, payload, 30*time.Second)
+				res, err := hub.DispatchTaskSync(target.ID, event, payload, 30*time.Second)
 				if err != nil || res.Status == "FAILED" {
-					log.Printf("Pipeline aborted on %s: Step '%s' failed. Err/Output: %v", access.TargetID, event, res.Output)
+					log.Printf("Pipeline aborted on %s: Step '%s' failed.", target.ID, event)
 					pipelineSuccess = false
-					break // Halt pipeline on failure
+					break
 				}
 			}
 

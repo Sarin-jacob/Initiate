@@ -23,13 +23,16 @@ type User struct {
 
 // TargetServer represents an Edge Agent
 type TargetServer struct {
-	ID           string    `gorm:"primaryKey;type:uuid"`
-	Name         string    `gorm:"not null"`
-	PublicKey    string    `gorm:"uniqueIndex;not null"`
-	Status       string    `gorm:"default:'OFFLINE'"`
-	Capabilities string    `gorm:"type:text"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID           			string    `gorm:"primaryKey;type:uuid"`
+	Name         			string    `gorm:"not null"`
+	PublicKey    			string    `gorm:"uniqueIndex;not null"`
+	Status       			string    `gorm:"default:'OFFLINE'"`
+	Capabilities 			string    `gorm:"type:text"`
+	ProvisionMacroID       	string `gorm:"type:uuid"`
+	SoftDeprovisionMacroID 	string `gorm:"type:uuid"`
+	HardDeprovisionMacroID 	string `gorm:"type:uuid"`
+	CreatedAt    			time.Time
+	UpdatedAt    			time.Time
 }
 
 type Page struct {
@@ -47,9 +50,6 @@ type UserAccess struct {
 	UserID         string `gorm:"index;not null"`
 	TargetType     string `gorm:"not null"` // "GITEA" or "SERVER"
 	TargetID       string `gorm:"not null"` // Gitea identifier or Edge Server UUID
-	GrantedModules string `gorm:"type:text"` // NEW: Stores JSON array of allowed modules e.g., '["system_user", "ssh_key"]'
-	ProvisionMacroID   string `gorm:"type:uuid"` 
-	DeprovisionMacroID string `gorm:"type:uuid"`
 	Status         string `gorm:"default:'PENDING'"`
 	CreatedAt      time.Time
 	UpdatedAt      time.Time

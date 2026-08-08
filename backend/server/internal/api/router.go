@@ -39,13 +39,15 @@ func NewRouter(
         r.Post("/pages/preview", HandlePreviewPage())
         
         // Stubs for future implementation
-        r.Get("/users", HandleListUsers(database))
         r.Get("/servers", HandleListServers(database))
         r.Post("/servers", HandleRegisterServer(database))
-
+        r.Put("/servers/{id}/config", HandleConfigServer(database))
+        r.Delete("/servers/{id}", HandleDeleteServer(database, hub))
+        
         r.Get("/settings", HandleGetSettings(database))
         r.Post("/settings", HandleUpdateSettings(database))
-
+        
+        r.Get("/users", HandleListUsers(database))
         r.Put("/users/{id}/expire", HandleUpdateUserExpiration(database))
         r.Post("/users/{id}/macro", HandleApplyMacro(database, hub))
         r.Post("/users/{id}/deprovision", HandleDeprovisionUser(database, hub))

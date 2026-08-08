@@ -57,3 +57,7 @@ var upgrader = websocket.Upgrader{
 	// Ensure we only allow connections from our expected origin (or allow all if behind Nginx)
 	CheckOrigin: func(r *http.Request) bool { return true }, 
 }
+
+func (h *Hub) DisconnectTarget(serverID string) {
+	h.unregisterClient(serverID)
+}
