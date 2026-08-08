@@ -1,130 +1,109 @@
 package api
 
 import (
-    "encoding/json"
-    "errors"
-    "log"
-    "net/http"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"time"
 
-    "github.com/go-chi/chi/v5"
-    "gorm.io/gorm"
+	"github.com/go-chi/chi/v5"
+	"gorm.io/gorm"
 
-    "github.com/Sarin-jacob/Initiate/internal/agenthub"
-    "github.com/Sarin-jacob/Initiate/internal/db"
-    "github.com/Sarin-jacob/Initiate/internal/gitea"
+	"github.com/Sarin-jacob/Initiate/internal/agenthub"
+	"github.com/Sarin-jacob/Initiate/internal/db"
 )
 
-type GiteaTeardownRequest struct {
-    Enabled    bool `json:"enabled"`
-    PurgeRepos bool `json:"purge_repos"`
-}
-
-type ServerTeardownRequest struct {
-    TargetID  string `json:"target_id"`
-    PurgeHome bool   `json:"purge_home"`
-}
-
 type DeprovisionRequest struct {
-    Gitea   *GiteaTeardownRequest   `json:"gitea,omitempty"`
-    Servers []ServerTeardownRequest `json:"servers"`
+	PurgeRepos bool `json:"purge_repos"`
+	PurgeHome  bool `json:"purge_home"`
 }
 
-type DeprovisionResponse struct {
-    UserID     string `json:"user_id"`
-    Username   string `json:"username"`
-    FinalState string `json:"final_state"`
-    Message    string `json:"message"`
-}
+func HandleDeprovisionUser(database *gorm.DB, hub *agenthub.Hub) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID := chi.URLParam(r, "id")
+		
+		var req DeprovisionRequest
+		json.NewDecoder(r.Body).Decode(&req)
 
-func HandleDeprovisionUser(database *gorm.DB, hub *agenthub.Hub, giteaClient *gitea.Client) http.HandlerFunc {
-    return func(w http.ResponseWriter, r *http.Request) {
-        userID := chi.URLParam(r, "id")
-        if userID == "" {
-            http.Error(w, "User ID is required", http.StatusBadRequest)
-            return
-        }
+		var user db.User
+		if err := database.First(&user, "id = ?", userID).Error; err != nil {
+			http.Error(w, "User not found", http.StatusNotFound)
+			return
+		}
 
-        var req DeprovisionRequest
-        if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-            http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
-            return
-        }
+		var accesses []db.UserAccess
+		database.Where("user_id = ?", user.ID).Find(&accesses)
 
-        var user db.User
-        if err := database.First(&user, "id = ?", userID).Error; err != nil {
-            if errors.Is(err, gorm.ErrRecordNotFound) {
-                http.Error(w, "User not found", http.StatusNotFound)
-                return
-            }
-            http.Error(w, "Database error", http.StatusInternalServerError)
-            return
-        }
+		hasFailures := false
+		isFootprintPreserved := !req.PurgeHome && !req.PurgeRepos
 
-        isFootprintPreserved := false
+		payload := map[string]interface{}{
+			"username":    user.Username,
+			"purge_home":  req.PurgeHome,
+			"purge_repos": req.PurgeRepos,
+		}
 
-        // 3. Process Gitea Teardown
-        if req.Gitea != nil && req.Gitea.Enabled {
-            if !req.Gitea.PurgeRepos {
-                isFootprintPreserved = true
-                if err := giteaClient.DeleteUser(r.Context(), user.Username, false); err != nil {
-                    log.Printf("Gitea soft delete failed: %v", err)
-                }
-            } else {
-                if err := giteaClient.DeleteUser(r.Context(), user.Username, true); err != nil {
-                    log.Printf("Gitea purge failed: %v", err)
-                }
-            }
-            database.Where("user_id = ? AND target_type = ?", user.ID, "GITEA").Delete(&db.UserAccess{})
-        }
+		for _, access := range accesses {
+			var target db.TargetServer
+			if err := database.First(&target, "id = ?", access.TargetID).Error; err != nil {
+				continue
+			}
 
-        // 4. Process Edge Server Teardowns
-        for _, srv := range req.Servers {
-            if !srv.PurgeHome {
-                isFootprintPreserved = true
-            }
+			// Decide which macro the Agent requires based on UI flags
+			macroID := target.SoftDeprovisionMacroID
+			// If either purge flag is true, elevate to Hard Deprovision
+			if req.PurgeHome || req.PurgeRepos {
+				macroID = target.HardDeprovisionMacroID
+			}
 
-            payload := map[string]interface{}{
-                "username":   user.Username,
-                "purge_home": srv.PurgeHome,
-            }
-            
-            // Dispatch WebSocket message to Edge Agent
-            _, err := hub.DispatchTask(srv.TargetID, "DEPROVISION_USER", payload)
-            if err != nil {
-                log.Printf("Agent %s offline, teardown queued or manual intervention required", srv.TargetID)
-            }
+			if macroID != "" {
+				var macro db.Macro
+				if err := database.First(&macro, "id = ?", macroID).Error; err == nil {
+					var steps []MacroStep
+					json.Unmarshal([]byte(macro.Steps), &steps)
 
-            database.Where("user_id = ? AND target_type = ? AND target_id = ?", user.ID, "SERVER", srv.TargetID).Delete(&db.UserAccess{})
-        }
+					targetSuccess := true
+					for _, step := range steps {
+						event := fmt.Sprintf("%s:%s", step.Module, step.Action)
+						log.Printf("Executing teardown '%s' on %s...", event, target.ID)
+						
+						res, err := hub.DispatchTaskSync(target.ID, event, payload, 30*time.Second)
+						if err != nil || res.Status == "FAILED" {
+							log.Printf("CRITICAL: Teardown failed on %s (Step: %s). Output: %v", target.ID, event, res.Output)
+							targetSuccess = false
+							break // Halt this target's pipeline
+						}
+					}
+					
+					if !targetSuccess {
+						hasFailures = true
+						continue // Do NOT delete the UserAccess record if it failed!
+					}
+				}
+			}
 
-        // 5. Final State Decision
-        var finalState string
-        var message string
+			// Pipeline succeeded (or none was configured), clean up access record
+			database.Delete(&access)
+		}
 
-        if isFootprintPreserved {
-            user.Status = "ARCHIVED"
-            if err := database.Save(&user).Error; err != nil {
-                http.Error(w, "Failed to update user status to ARCHIVED", http.StatusInternalServerError)
-                return
-            }
-            finalState = "ARCHIVED"
-            message = "Teardown complete. User status set to ARCHIVED because assets (/home or Gitea repos) were preserved."
-        } else {
-            if err := database.Delete(&user).Error; err != nil {
-                http.Error(w, "Failed to purge user from database", http.StatusInternalServerError)
-                return
-            }
-            finalState = "PURGED"
-            message = "Teardown complete. User and all associated assets have been permanently purged."
-        }
+		var finalState string
+		if hasFailures {
+			// THE FAIL-SAFE: Do not delete the user. Mark them for manual intervention.
+			database.Model(&user).Update("status", "DEPROVISION_FAILED")
+			finalState = "DEPROVISION_FAILED"
+		} else if isFootprintPreserved {
+			database.Model(&user).Update("status", "ARCHIVED")
+			finalState = "ARCHIVED"
+		} else {
+			database.Delete(&user)
+			finalState = "PURGED"
+		}
 
-        w.Header().Set("Content-Type", "application/json")
-        w.WriteHeader(http.StatusOK)
-        json.NewEncoder(w).Encode(DeprovisionResponse{
-            UserID:     user.ID,
-            Username:   user.Username,
-            FinalState: finalState,
-            Message:    message,
-        })
-    }
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"user_id":     user.ID,
+			"final_state": finalState,
+		})
+	}
 }

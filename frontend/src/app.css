@@ -1,6 +1,6 @@
 @import "tailwindcss";
 @plugin "daisyui" {
-    themes: corporate, winter --prefersdark;
+    themes: all;
 }
 
 body {

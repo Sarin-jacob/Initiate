@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"log"
 	"net/http"
 	"time"
@@ -81,10 +82,18 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	h.registerClient(client)
 
-	// Update DB status
+	capabilitiesJSON := "{}" 
+	if caps, ok := hello.Payload["capabilities"].(map[string]interface{}); ok {
+		if bytes, err := json.Marshal(caps); err == nil {
+			capabilitiesJSON = string(bytes)
+		}
+	}
+
+	// Update DB status and capabilities
 	h.db.Model(&target).Updates(map[string]interface{}{
-		"status":    "ONLINE",
-		"last_seen": time.Now(),
+		"status":       "ONLINE",
+		"capabilities": capabilitiesJSON, // Saves {"system_user":["create","delete"], "ssh_key":["create"]}
+		"last_seen":    time.Now(),
 	})
 
 	// 7. Start listening for Task Results

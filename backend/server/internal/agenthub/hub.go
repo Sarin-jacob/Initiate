@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/Sarin-jacob/Initiate/internal/gitea"
 	"github.com/gorilla/websocket"
 	"gorm.io/gorm"
 )
@@ -25,17 +26,29 @@ type AgentClient struct {
 
 // Hub manages all active WebSocket connections to Edge Agents
 type Hub struct {
-	mu      sync.RWMutex
-	clients map[string]*AgentClient
-	db      *gorm.DB
+	mu      		sync.RWMutex
+	clients 		map[string]*AgentClient
+	db      		*gorm.DB
+	gitea   		*gitea.Client
+	pendingTasks 	map[string]chan TaskResult
+	taskMu       	sync.RWMutex
 }
 
-// NewHub initializes the WebSocket hub
-func NewHub(db *gorm.DB) *Hub {
+// Ensure your Hub initialization includes the new map!
+func NewHub(database *gorm.DB, giteaClient *gitea.Client) *Hub {
 	return &Hub{
-		clients: make(map[string]*AgentClient),
-		db:      db,
+		clients:      make(map[string]*AgentClient),
+		db:           database,
+		gitea:        giteaClient,
+		pendingTasks: make(map[string]chan TaskResult), // Initialize the map
 	}
+}
+
+// TaskResult captures the final state of an execution on the Edge Agent
+type TaskResult struct {
+	TaskID string
+	Status string // "SUCCESS" or "FAILED"
+	Output string
 }
 
 var upgrader = websocket.Upgrader{
@@ -43,4 +56,8 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 	// Ensure we only allow connections from our expected origin (or allow all if behind Nginx)
 	CheckOrigin: func(r *http.Request) bool { return true }, 
+}
+
+func (h *Hub) DisconnectTarget(serverID string) {
+	h.unregisterClient(serverID)
 }

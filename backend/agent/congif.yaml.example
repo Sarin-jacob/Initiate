@@ -1,0 +1,66 @@
+server:
+  url: "ws://localhost:8080/agent/ws" # Update to your Central Server IP
+  cert_pin: "" 
+  private_key_path: "agent.key"
+
+modules:
+  # ---------------------------------------------------------
+  # Module: system_user 
+  # Manages the base OS-level Linux user lifecycle
+  # ---------------------------------------------------------
+  system_user:
+    create:
+      description: "Creates a new Linux user with a home directory and bash shell."
+      variables: ["username"]
+      command: "/usr/sbin/useradd"
+      args: ["-m", "-s", "/bin/bash", "{{.username}}"]
+      
+    delete:
+      description: "Deletes the Linux user and removes their home directory."
+      variables: ["username"]
+      command: "/usr/sbin/userdel"
+      args: ["-r", "{{.username}}"]
+      
+    suspend:
+      description: "Locks the Linux user account."
+      variables: ["username"]
+      command: "/usr/sbin/usermod"
+      args: ["-L", "{{.username}}"]
+      
+    resume:
+      description: "Unlocks the Linux user account."
+      variables: ["username"]
+      command: "/usr/sbin/usermod"
+      args: ["-U", "{{.username}}"]
+
+    set_password:
+      description: "Sets or updates the user's local OS password."
+      variables: ["username", "password"]
+      command: "/usr/bin/bash"
+      args: 
+        - "-c"
+        - "echo '{{.username}}:{{.password}}' | /usr/sbin/chpasswd"
+
+  # ---------------------------------------------------------
+  # Module: ssh_key
+  # Manages the secure shell access keys for the user
+  # ---------------------------------------------------------
+  ssh_key:
+    create:
+      description: "Creates the .ssh directory and injects the public key with strict permissions."
+      variables: ["username", "ssh_public_key"]
+      command: "/usr/bin/bash"
+      args: 
+        - "-c"
+        - |
+          mkdir -p /home/{{.username}}/.ssh && \
+          echo '{{.ssh_public_key}}' >> /home/{{.username}}/.ssh/authorized_keys && \
+          chown -R {{.username}}:{{.username}} /home/{{.username}}/.ssh && \
+          chmod 700 /home/{{.username}}/.ssh && \
+          chmod 600 /home/{{.username}}/.ssh/authorized_keys
+
+    delete:
+      description: "Revokes SSH access by deleting the authorized_keys file."
+      variables: ["username"]
+      command: "/usr/bin/rm"
+      args: ["-f", "/home/{{.username}}/.ssh/authorized_keys"]

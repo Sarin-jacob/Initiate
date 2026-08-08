@@ -32,22 +32,54 @@ func NewRouter(
         r.Use(RequireAdmin)
         
         r.Post("/users/invite", HandleInviteUser(database, emailer, baseSystemURL))
-        r.Delete("/users/{id}", HandleDeprovisionUser(database, hub, giteaClient))
+        r.Delete("/users/{id}", HandleDeprovisionUser(database, hub))
+
+        r.Get("/pages", HandleListPages(database))
+        r.Post("/pages", HandleSavePage(database))
+        r.Post("/pages/preview", HandlePreviewPage())
         
         // Stubs for future implementation
-        r.Get("/users", HandleListUsers(database))
         r.Get("/servers", HandleListServers(database))
         r.Post("/servers", HandleRegisterServer(database))
+        r.Put("/servers/{id}/config", HandleConfigServer(database))
+        r.Delete("/servers/{id}", HandleDeleteServer(database, hub))
+        
+        r.Get("/settings", HandleGetSettings(database))
+        r.Post("/settings", HandleUpdateSettings(database))
+        
+        r.Get("/users", HandleListUsers(database))
+        r.Put("/users/{id}/expire", HandleUpdateUserExpiration(database))
+        r.Post("/users/{id}/macro", HandleApplyMacro(database, hub))
+        r.Post("/users/{id}/deprovision", HandleDeprovisionUser(database, hub))
+
+        r.Get("/macros", HandleGetMacros(database))
+        r.Post("/macros", HandleCreateMacro(database))
+        r.Put("/macros/{id}", HandleUpdateMacro(database))
+        r.Delete("/macros/{id}", HandleDeleteMacro(database))
     })
+
+    r.Get("/api/docs/{slug}", HandleGetPublicPage(database))
+    r.Post("/api/admin/login", HandleAdminLogin())
 
     // --- 2. Invite / Onboarding API (Unauthenticated initially, tokens checked inside handlers) ---
-    r.Route("/api/invite", func(r chi.Router) {
-        r.Get("/{token}", HandleGetInviteData(database))
-        r.Post("/{token}/complete", HandleCompleteOnboarding(database, hub, giteaClient))
-    })
+    r.Route("/api/invite/{token}", func(r chi.Router) {
+		// Apply the database-aware middleware
+		r.Use(RequireInviteToken(database))
+
+		// These handlers now securely trust that the token is valid!
+		r.Get("/", HandleGetInviteData(database))
+		r.Get("/page/{slug}", HandleGetPageBySlug(database))
+		r.Post("/complete", HandleCompleteOnboarding(database, hub, giteaClient))
+	})
 
     // --- 3. Edge Agent WebSocket (Secured by Ed25519) ---
-    r.With(RequireEdgeAuth).Get("/agent/ws", hub.HandleWS)
+    r.Route("/api/ws", func(r chi.Router) {
+		// Inject the database into the middleware
+		r.Use(RequireEdgeAuth(database)) 
+		
+		// If the middleware passes, upgrade the connection!
+		r.Get("/agent", hub.HandleWS) 
+	})
 
     // --- 4. Frontend SPA Serve (Catch-all) ---
     fs := http.FileServer(http.Dir("./static"))

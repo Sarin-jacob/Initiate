@@ -2,15 +2,17 @@ package main
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/hex"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
-	"gopkg.in/yaml.v3"
 
 	"github.com/Sarin-jacob/Initiate-Agent/internal"
 )
@@ -23,34 +25,75 @@ type WSPayload struct {
 	Payload   map[string]interface{} `json:"payload,omitempty"`
 }
 
+// EnsureKeyExists creates a new Ed25519 key if one is not found at the given path
+func EnsureKeyExists(path string) (ed25519.PrivateKey, error) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		log.Println("No private key found. Generating new Ed25519 keypair...")
+
+		pub, priv, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate key: %w", err)
+		}
+
+		// Save with strict 0600 permissions
+		if err := os.WriteFile(path, priv, 0600); err != nil {
+			return nil, fmt.Errorf("failed to save private key: %w", err)
+		}
+
+		log.Printf("New key generated successfully. Public Key: %s\n", hex.EncodeToString(pub))
+		return priv, nil
+	}
+
+	keyBytes, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read existing key: %w", err)
+	}
+
+	return ed25519.PrivateKey(keyBytes), nil
+}
+
 func main() {
 	// 1. Parse CLI Flags
-	configPath := flag.String("config", "config.yaml", "Path to config.yaml")
+	configPath := flag.String("config", "config.yml", "Path to config.yml")
+	showPubKey := flag.Bool("show-pubkey", false, "Print the public key and exit")
 	flag.Parse()
 
-	// 2. Read and Parse config.yaml
-	configData, err := os.ReadFile(*configPath)
+	// 2. Read Configuration
+	config, err := internal.LoadConfig(*configPath)
 	if err != nil {
-		log.Fatalf("Failed to read config file at %s: %v", *configPath, err)
+		log.Fatalf("Failed to parse config.yml: %v", err)
 	}
 
-	var config internal.AgentConfig
-	if err := yaml.Unmarshal(configData, &config); err != nil {
-		log.Fatalf("Failed to parse config.yaml: %v", err)
-	}
-
-	// 3. Load Cryptographic Keys
-	privKey, err := internal.LoadPrivateKey(config.Server.PrivateKeyPath)
+	// 3. Ensure Cryptographic Identity
+	privKey, err := EnsureKeyExists(config.Server.PrivateKeyPath)
 	if err != nil {
-		log.Fatalf("Failed to load private key from %s: %v", config.Server.PrivateKeyPath, err)
+		log.Fatalf("Failed to load or generate identity: %v", err)
 	}
 	pubKey := hex.EncodeToString(privKey.Public().(ed25519.PublicKey))
 
-	// 4. Dial WebSocket with Pinned TLS
+	// 4. CLI Intercept: Display key and exit
+	if *showPubKey {
+		fmt.Printf("\n--- Edge Agent Identity ---\n")
+		fmt.Printf("Public Key: %s\n", pubKey)
+		fmt.Printf("File Path:  %s\n\n", config.Server.PrivateKeyPath)
+		os.Exit(0)
+	}
+
+	// 5. Dial WebSocket with Pinned TLS
 	dialer := websocket.Dialer{
 		TLSClientConfig: internal.GetPinnedTLSConfig(config.Server.CertPin),
 	}
-	
+
+	// Extract Module Names to report as Capabilities
+	capabilities := make(map[string][]string)
+	for moduleName, moduleActions := range config.Modules {
+		var actionNames []string
+		for actionName := range moduleActions {
+			actionNames = append(actionNames, actionName)
+		}
+		capabilities[moduleName] = actionNames
+	}
+
 	headers := http.Header{}
 	headers.Add("X-Agent-Pubkey", pubKey)
 
@@ -70,8 +113,12 @@ func main() {
 
 		log.Println("Connected. Initiating Handshake...")
 
-		// 5. Authenticate
-		conn.WriteJSON(WSPayload{Event: "AGENT_HELLO", Payload: map[string]interface{}{"public_key": pubKey}})
+		// Authenticate
+		helloPayload := map[string]interface{}{
+			"public_key":   pubKey,
+			"capabilities": capabilities, // Agent dynamically reports what modules it supports
+		}
+		conn.WriteJSON(WSPayload{Event: "AGENT_HELLO", Payload: helloPayload})
 
 		var challenge WSPayload
 		conn.ReadJSON(&challenge)
@@ -86,27 +133,45 @@ func main() {
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		
+
 		log.Println("Successfully Authenticated. Listening for tasks...")
 
-		// 6. Execution Loop
+		// Execution Loop
 		for {
 			var msg WSPayload
 			if err := conn.ReadJSON(&msg); err != nil {
 				log.Println("Connection dropped or error:", err)
-				break // Break inner loop to trigger reconnect
+				break 
 			}
 
 			log.Printf("Received task: %s (ID: %s)", msg.Event, msg.TaskID)
 
-			cmdConf, exists := config.Executor[msg.Event]
-			if !exists {
-				log.Printf("Warning: No executor configured for event %s", msg.Event)
+			// The Event is now formatted as "module_name:action" (e.g., "system_user:create")
+			parts := strings.Split(msg.Event, ":")
+			if len(parts) != 2 {
+				log.Printf("Error: Malformed event format '%s'. Expected 'module:action'", msg.Event)
+				continue
+			}
+			moduleName := parts[0]
+			actionName := parts[1]
+
+			// Validate module exists
+			module, moduleExists := config.Modules[moduleName]
+			if !moduleExists {
+				log.Printf("Error: Module '%s' not supported by this agent", moduleName)
 				continue
 			}
 
-			outStr, execErr := internal.ExecuteTask(cmdConf, msg.Payload)
-			
+			// Validate action exists within the module
+			actionConf, actionExists := module[actionName]
+			if !actionExists {
+				log.Printf("Error: Action '%s' not supported for module '%s'", actionName, moduleName)
+				continue
+			}
+
+			// Execute Task
+			outStr, execErr := internal.ExecuteTask(actionConf, msg.Payload)
+
 			status := "SUCCESS"
 			errorMsg := ""
 			if execErr != nil {
@@ -114,6 +179,7 @@ func main() {
 				errorMsg = execErr.Error()
 			}
 
+			// Report Result
 			conn.WriteJSON(WSPayload{
 				Event:  "TASK_RESULT",
 				TaskID: msg.TaskID,
@@ -126,7 +192,6 @@ func main() {
 			log.Printf("Task %s completed with status %s", msg.TaskID, status)
 		}
 
-		// If we break out of the execution loop, clean up and wait before reconnecting
 		conn.Close()
 		log.Println("Disconnected from Central Server. Retrying in 5 seconds...")
 		time.Sleep(5 * time.Second)
