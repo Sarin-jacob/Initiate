@@ -28,6 +28,8 @@ type InviteUserRequest struct {
 	Email           string           `json:"email"`
 	ProvisionGitea  bool             `json:"provision_gitea"`
 	EdgeAllocations []EdgeAllocation `json:"edge_allocations"`
+	ExpireAmount    int              `json:"expire_amount"`
+	ExpireUnit      string           `json:"expire_unit"`
 }
 
 // InviteDataResponse is the JSON payload sent to the frontend
@@ -115,6 +117,24 @@ func HandleInviteUser(database *gorm.DB, emailer *mailer.Mailer, baseSystemURL s
 			}
 		}
 
+		var expiresAt *time.Time
+		if req.ExpireAmount > 0 {
+			expTime := time.Now()
+			switch req.ExpireUnit {
+			case "days":
+				expTime = expTime.AddDate(0, 0, req.ExpireAmount)
+			case "weeks":
+				expTime = expTime.AddDate(0, 0, req.ExpireAmount*7)
+			case "months":
+				expTime = expTime.AddDate(0, req.ExpireAmount, 0)
+			case "years":
+				expTime = expTime.AddDate(req.ExpireAmount, 0, 0)
+			default:
+				expTime = expTime.AddDate(0, 0, req.ExpireAmount) // Default to days
+			}
+			expiresAt = &expTime
+		}
+
 		// 3. Start a Database Transaction
 		tx := database.Begin()
 		defer func() {
@@ -130,6 +150,7 @@ func HandleInviteUser(database *gorm.DB, emailer *mailer.Mailer, baseSystemURL s
 			Username: req.Username,
 			Email:    req.Email,
 			Status:   "PENDING",
+			ExpiresAt: expiresAt,
 		}
 		if err := tx.Create(&user).Error; err != nil {
 			tx.Rollback()

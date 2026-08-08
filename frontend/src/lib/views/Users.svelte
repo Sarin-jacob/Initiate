@@ -60,12 +60,12 @@
         isInviting = true;
         const form = e.target;
         
-        // Construct the new dynamic payload
         const payload = {
             username: form.username.value,
             email: form.email.value,
             provision_gitea: form.provGitea.checked,
-            // Convert our dictionary into an array of objects for the backend
+            expire_amount: parseInt(form.expireAmount.value) || 0,
+            expire_unit: form.expireUnit.value,
             edge_allocations: Object.keys(agentAllocations).map(serverId => ({
                 server_id: serverId,
                 modules: agentAllocations[serverId]
@@ -79,13 +79,18 @@
             
             alertMsg = "User invited successfully!";
             form.reset();
-            agentAllocations = {}; // Reset allocations
+            agentAllocations = {}; 
             fetchData();
-        } catch (err) { 
-            alertMsg = err.message; 
-        } finally {
-            isInviting = false;
-        }
+        } catch (err) { alertMsg = err.message; }
+        finally { isInviting = false; }
+    }
+
+    // Format Expiration Date for the table
+    function formatExpiry(dateStr) {
+        if (!dateStr) return "Never";
+        const d = new Date(dateStr);
+        if (d < new Date()) return "Expired";
+        return d.toLocaleDateString();
     }
 </script>
 
@@ -100,9 +105,7 @@
     <!-- Provisioning Accordion -->
     <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
         <input type="checkbox" /> 
-        <div class="collapse-title text-xl font-bold p-6">
-            + Provision New User Access
-        </div>
+        <div class="collapse-title text-xl font-bold p-6">+ Provision New User Access</div>
         <div class="collapse-content border-t border-base-200 p-6">
             <form on:submit={handleInvite} class="space-y-6 pt-4">
                 {#if alertMsg}<div class="alert alert-success shadow-sm mb-4">{alertMsg}</div>{/if}
@@ -110,19 +113,35 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div class="form-control">
                         <label class="label"><span class="label-text font-bold">Username</span></label>
-                        <input type="text" name="username" required class="input input-bordered input-lg" placeholder="jdoe" />
+                        <input type="text" name="username" required class="input input-bordered input-lg" />
                     </div>
                     <div class="form-control">
                         <label class="label"><span class="label-text font-bold">Email Address</span></label>
-                        <input type="email" name="email" required class="input input-bordered input-lg" placeholder="jdoe@company.com" />
+                        <input type="email" name="email" required class="input input-bordered input-lg" />
                     </div>
                 </div>
                 
-                <div class="form-control bg-base-200/50 p-4 rounded-xl border border-base-300">
-                    <label class="label cursor-pointer justify-start gap-4">
-                        <input type="checkbox" name="provGitea" class="checkbox checkbox-primary checkbox-lg" checked />
-                        <span class="label-text font-bold text-lg">Provision Central Gitea Account</span>
-                    </label>
+                <!-- Expiration Controls -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="form-control bg-base-200/50 p-4 rounded-xl border border-base-300">
+                        <label class="label cursor-pointer justify-start gap-4">
+                            <input type="checkbox" name="provGitea" class="checkbox checkbox-primary checkbox-lg" checked />
+                            <span class="label-text font-bold text-lg">Provision Central Gitea Account</span>
+                        </label>
+                    </div>
+
+                    <div class="form-control">
+                        <label class="label"><span class="label-text font-bold">Automated Expiration</span></label>
+                        <div class="join w-full h-fit">
+                            <input type="number" name="expireAmount" min="0" placeholder="0 = Never" class="input input-bordered join-item w-full input-lg" />
+                            <select name="expireUnit" class="select select-bordered join-item input-lg h-auto">
+                                <option value="days">Days</option>
+                                <option value="weeks">Weeks</option>
+                                <option value="months">Months</option>
+                                <option value="years">Years</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Dynamic Agent Selector -->
@@ -191,17 +210,17 @@
         <div class="overflow-x-auto">
             <table class="table table-zebra w-full text-base">
                 <thead class="bg-base-200 text-base">
-                    <tr><th>Identity</th><th>Status</th><th>Gitea</th><th>Edge Agents</th></tr>
+                    <tr><th>Identity</th><th>Status</th><th>Gitea</th><th>Expires</th><th>Edge Agents</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
                     {#each users as user}
-                        <!-- Table content remains the same... -->
                         <tr>
                             <td>
                                 <div class="font-bold text-lg">{user.Username}</div>
                                 <div class="text-sm opacity-60">{user.Email}</div>
                             </td>
                             <td><span class="badge {user.Status === 'ACTIVE' ? 'badge-success' : 'badge-warning'} p-3">{user.Status}</span></td>
+                            
                             <td>
                                 {#if user.access_list && user.access_list.find(a => a.TargetType === 'GITEA')}
                                     <span class="badge badge-primary p-3">Provisioned</span>
@@ -209,6 +228,14 @@
                                     <span class="text-sm text-gray-400">None</span>
                                 {/if}
                             </td>
+                            
+                            <!-- NEW: Expiration Display -->
+                            <td>
+                                <span class="text-sm font-mono {formatExpiry(user.ExpiresAt) === 'Expired' ? 'text-error font-bold' : ''}">
+                                    {formatExpiry(user.ExpiresAt)}
+                                </span>
+                            </td>
+
                             <td>
                                 <div class="flex flex-wrap gap-2">
                                     {#if user.access_list}
@@ -216,6 +243,22 @@
                                             <span class="badge badge-info p-3" title={srv.TargetID}>{srv.TargetID.substring(0, 8)}</span>
                                         {/each}
                                     {/if}
+                                </div>
+                            </td>
+                            
+                            <!-- NEW: User Actions Dropdown -->
+                            <td class="w-16">
+                                <div class="dropdown dropdown-end">
+                                    <div tabindex="0" role="button" class="btn btn-ghost btn-sm btn-circle">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 12.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 18.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z" /></svg>
+                                    </div>
+                                    <ul class="dropdown-content z-[1] menu p-2 shadow-lg bg-base-100 rounded-box w-56 border border-base-300">
+                                        <li class="menu-title px-4 py-2">Manage {user.Username}</li>
+                                        <li><a class="hover:bg-base-200">Extend Expiration</a></li>
+                                        <li><a class="hover:bg-base-200">Apply New Macro</a></li>
+                                        <div class="divider my-1"></div>
+                                        <li><a class="text-error hover:bg-error hover:text-error-content font-bold">Deprovision User</a></li>
+                                    </ul>
                                 </div>
                             </td>
                         </tr>

@@ -16,6 +16,7 @@ type User struct {
 	PasswordHash string
 	SSHPublicKey string
 	Status       string `gorm:"default:'PENDING'"` // PENDING, ACTIVE, DISABLED, ARCHIVED
+	ExpiresAt    *time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
