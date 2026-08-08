@@ -120,7 +120,7 @@
             
             <div class="drawer-side border-r border-base-300 shadow-xl z-50">
                 <label for="admin-drawer" class="drawer-overlay"></label> 
-                <ul class="menu p-6 w-72 min-h-full bg-base-100 text-base-content flex flex-col gap-2 text-lg">
+                <ul class="menu p-6 w-72 min-h-full bg-base-100 text-base-content flex flex-col gap-2">
                     <li class="mb-6 mt-2 px-4 flex-row items-center gap-3 pointer-events-none">
                         <div class="w-10 h-10 rounded-xl bg-primary text-primary-content flex items-center justify-center font-bold text-xl shadow-sm">N</div>
                         <span class="text-2xl font-bold tracking-tight">NexusIAM</span>
