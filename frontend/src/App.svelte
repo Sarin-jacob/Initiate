@@ -6,9 +6,11 @@
     import Users from './lib/views/Users.svelte';
     import Agents from './lib/views/Agents.svelte';
     import Macros from './lib/views/Macros.svelte';
+    import PublicDoc from './lib/PublicDoc.svelte'
 
     const urlParams = new URLSearchParams(window.location.search);
     const inviteToken = urlParams.get('token');
+    const docSlug = urlParams.get('docs');
 
     let currentView = 'users'; 
     let isAppReady = false;
@@ -57,6 +59,8 @@
         </div>
     {:else if inviteToken}
         <Onboarding token={inviteToken} />
+    {:else if docSlug}
+        <PublicDoc slug={docSlug}/>
     {:else}
         <!-- Admin Dashboard Layout -->
         <div class="drawer lg:drawer-open">
