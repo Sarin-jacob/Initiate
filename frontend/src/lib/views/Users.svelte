@@ -3,11 +3,29 @@
     
     let users = [];
     let servers = [];
+    let macros = [];
     
     // Tracks selected servers and their granted modules. 
     // Format: { "server-uuid": ["system_user", "ssh_key"] }
     let agentAllocations = {}; 
     
+    // Action Modal State
+    let activeUser = null; 
+    let isProcessing = false;
+
+    // Deprovision Form State
+    let deprovGitea = true;
+    let deprovPurgeRepos = false;
+    let deprovPurgeHome = false;
+
+    // Macro Form State
+    let selectedMacroId = '';
+    let selectedMacroServer = '';
+
+    // Expiry Form State
+    let updateExpiryAmount = 0;
+    let updateExpiryUnit = 'days';
+
     let isInviting = false;
     let alertMsg = '';
     
@@ -15,13 +33,15 @@
 
     async function fetchData() {
         try {
-            const [resUsers, resServers] = await Promise.all([
+            const [resUsers, resServers, resMacros] = await Promise.all([
                 fetch('/api/admin/users', { headers }),
-                fetch('/api/admin/servers', { headers })
+                fetch('/api/admin/servers', { headers }),
+                fetch('/api/admin/macros', { headers })
             ]);
             
             if (resUsers.ok) users = await resUsers.json() || [];
             if (resServers.ok) servers = await resServers.json() || [];
+            if (resMacros.ok) macros = await resMacros.json() || [];
         } catch (err) {
             console.error("Failed to load data", err);
         }
@@ -91,6 +111,81 @@
         const d = new Date(dateStr);
         if (d < new Date()) return "Expired";
         return d.toLocaleDateString();
+    }
+
+    // --- MODAL CONTROLS ---
+
+    function openModal(modalId, user) {
+        activeUser = user;
+        document.getElementById(modalId).showModal();
+    }
+
+    function closeModal(modalId) {
+        activeUser = null;
+        document.getElementById(modalId).close();
+    }
+
+    // --- ACTION HANDLERS ---
+
+    async function handleExtendExpiry() {
+        isProcessing = true;
+        try {
+            const res = await fetch(`/api/admin/users/${activeUser.ID}/expire`, {
+                method: 'PUT',
+                headers,
+                body: JSON.stringify({
+                    expire_amount: parseInt(updateExpiryAmount) || 0,
+                    expire_unit: updateExpiryUnit
+                })
+            });
+            if (!res.ok) throw new Error("Failed to update expiration");
+            closeModal('modal_expiry');
+            fetchData();
+        } catch (err) { alert(err.message); }
+        finally { isProcessing = false; }
+    }
+
+    async function handleApplyMacro() {
+        if (!selectedMacroId || !selectedMacroServer) return alert("Select macro and server.");
+        isProcessing = true;
+        try {
+            const res = await fetch(`/api/admin/users/${activeUser.ID}/macro`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ macro_id: selectedMacroId, server_id: selectedMacroServer })
+            });
+            if (!res.ok) throw new Error("Failed to execute macro pipeline");
+            closeModal('modal_macro');
+            fetchData();
+        } catch (err) { alert(err.message); }
+        finally { isProcessing = false; }
+    }
+
+    async function handleDeprovision() {
+        if (!confirm(`WARNING: Are you sure you want to deprovision ${activeUser.Username}?`)) return;
+        
+        isProcessing = true;
+        // Construct the teardown payload based on the user's current server access
+        const serversToTeardown = (activeUser.access_list || [])
+            .filter(a => a.TargetType === 'SERVER')
+            .map(a => ({ target_id: a.TargetID, purge_home: deprovPurgeHome }));
+
+        const payload = {
+            gitea: { enabled: deprovGitea, purge_repos: deprovPurgeRepos },
+            servers: serversToTeardown
+        };
+
+        try {
+            const res = await fetch(`/api/admin/users/${activeUser.ID}/deprovision`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error("Deprovisioning failed");
+            closeModal('modal_deprovision');
+            fetchData();
+        } catch (err) { alert(err.message); }
+        finally { isProcessing = false; }
     }
 </script>
 
@@ -254,10 +349,10 @@
                                     </div>
                                     <ul class="dropdown-content z-[1] menu p-2 shadow-lg bg-base-100 rounded-box w-56 border border-base-300">
                                         <li class="menu-title px-4 py-2">Manage {user.Username}</li>
-                                        <li><a class="hover:bg-base-200">Extend Expiration</a></li>
-                                        <li><a class="hover:bg-base-200">Apply New Macro</a></li>
+                                        <li><button type="button" on:click|preventDefault={() => openModal('modal_expiry', user)}>Extend Expiration</button></li>
+                                        <li><button type="button" on:click|preventDefault={() => openModal('modal_macro', user)}>Apply New Macro</button></li>
                                         <div class="divider my-1"></div>
-                                        <li><a class="text-error hover:bg-error hover:text-error-content font-bold">Deprovision User</a></li>
+                                        <li><button type="button" class="text-error font-bold" on:click|preventDefault={() => openModal('modal_deprovision', user)}>Deprovision User</button></li>
                                     </ul>
                                 </div>
                             </td>
@@ -268,3 +363,107 @@
         </div>
     </div>
 </div>
+
+<!-- 1. Expiration Modal -->
+<dialog id="modal_expiry" class="modal">
+    <div class="modal-box">
+        <h3 class="font-bold text-lg mb-4">Extend Expiration for {activeUser?.Username}</h3>
+        <div class="form-control">
+            <div class="join w-full">
+                <input type="number" bind:value={updateExpiryAmount} min="0" placeholder="0 = Never" class="input input-bordered join-item w-full" />
+                <select bind:value={updateExpiryUnit} class="select select-bordered join-item">
+                    <option value="days">Days</option>
+                    <option value="weeks">Weeks</option>
+                    <option value="months">Months</option>
+                    <option value="years">Years</option>
+                </select>
+            </div>
+            <label class="label"><span class="label-text-alt opacity-70">Set to 0 to remove expiration completely.</span></label>
+        </div>
+        <div class="modal-action">
+            <button class="btn btn-ghost" on:click={() => closeModal('modal_expiry')}>Cancel</button>
+            <button class="btn btn-primary" on:click={handleExtendExpiry} disabled={isProcessing}>
+                {#if isProcessing} <span class="loading loading-spinner loading-sm"></span> {/if}
+                Update Date
+            </button>
+        </div>
+    </div>
+</dialog>
+
+<!-- 2. Apply Macro Modal -->
+<dialog id="modal_macro" class="modal">
+    <div class="modal-box">
+        <h3 class="font-bold text-lg mb-4">Run Macro Pipeline</h3>
+        <p class="text-sm opacity-70 mb-4">Execute a sequence of actions on a specific edge agent for <b>{activeUser?.Username}</b>.</p>
+        
+        <div class="space-y-4">
+            <select bind:value={selectedMacroId} class="select select-bordered w-full">
+                <option value="" disabled selected>1. Select Macro Pipeline</option>
+                {#each macros as m}
+                    <option value={m.ID}>{m.Name}</option>
+                {/each}
+            </select>
+            
+            <select bind:value={selectedMacroServer} class="select select-bordered w-full">
+                <option value="" disabled selected>2. Select Target Edge Agent</option>
+                {#if activeUser?.access_list}
+                    {#each activeUser.access_list.filter(a => a.TargetType === 'SERVER') as srv}
+                        <option value={srv.TargetID}>Agent UUID: {srv.TargetID}</option>
+                    {/each}
+                {/if}
+            </select>
+        </div>
+        
+        <div class="modal-action">
+            <button class="btn btn-ghost" on:click={() => closeModal('modal_macro')}>Cancel</button>
+            <button class="btn btn-primary" on:click={handleApplyMacro} disabled={isProcessing || !selectedMacroId || !selectedMacroServer}>
+                {#if isProcessing} <span class="loading loading-spinner loading-sm"></span> {/if}
+                Execute Pipeline
+            </button>
+        </div>
+    </div>
+</dialog>
+
+<!-- 3. Deprovision Modal -->
+<dialog id="modal_deprovision" class="modal">
+    <div class="modal-box border-t-4 border-error">
+        <h3 class="font-bold text-lg text-error mb-2">Deprovision {activeUser?.Username}</h3>
+        <p class="text-sm opacity-70 mb-6">This will immediately revoke access. You can choose to preserve or purge their digital footprint.</p>
+        
+        <div class="space-y-4 bg-base-200/50 p-4 rounded-xl border border-base-300">
+            <label class="cursor-pointer flex items-center gap-4">
+                <input type="checkbox" bind:checked={deprovGitea} class="checkbox checkbox-error" />
+                <span class="font-bold flex-1">Revoke Gitea Access</span>
+            </label>
+            {#if deprovGitea}
+                <div class="pl-10">
+                    <label class="cursor-pointer flex items-center gap-3">
+                        <input type="checkbox" bind:checked={deprovPurgeRepos} class="toggle toggle-error toggle-sm" />
+                        <span class="text-sm">Hard Purge Git Repositories (Destructive)</span>
+                    </label>
+                </div>
+            {/if}
+
+            <div class="divider my-1"></div>
+
+            <label class="cursor-pointer flex items-center gap-4">
+                <input type="checkbox" checked disabled class="checkbox checkbox-error opacity-50" />
+                <span class="font-bold flex-1">Revoke Edge Agent Access</span>
+            </label>
+            <div class="pl-10">
+                <label class="cursor-pointer flex items-center gap-3">
+                    <input type="checkbox" bind:checked={deprovPurgeHome} class="toggle toggle-error toggle-sm" />
+                    <span class="text-sm">Hard Purge /home Directories (Destructive)</span>
+                </label>
+            </div>
+        </div>
+        
+        <div class="modal-action mt-6">
+            <button class="btn btn-ghost" on:click={() => closeModal('modal_deprovision')}>Cancel</button>
+            <button class="btn btn-error" on:click={handleDeprovision} disabled={isProcessing}>
+                {#if isProcessing} <span class="loading loading-spinner loading-sm"></span> {/if}
+                Confirm Deprovision
+            </button>
+        </div>
+    </div>
+</dialog>

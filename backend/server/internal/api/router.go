@@ -46,6 +46,10 @@ func NewRouter(
         r.Get("/settings", HandleGetSettings(database))
         r.Post("/settings", HandleUpdateSettings(database))
 
+        r.Put("/users/{id}/expire", HandleUpdateUserExpiration(database))
+        r.Post("/users/{id}/macro", HandleApplyMacro(database, hub))
+        r.Post("/users/{id}/deprovision", HandleDeprovisionUser(database, hub, giteaClient))
+
         r.Get("/macros", HandleGetMacros(database))
         r.Post("/macros", HandleCreateMacro(database))
         r.Put("/macros/{id}", HandleUpdateMacro(database))

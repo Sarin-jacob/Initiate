@@ -2,6 +2,8 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -9,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/Sarin-jacob/Initiate/internal/agenthub"
 	"github.com/Sarin-jacob/Initiate/internal/db"
 )
 
@@ -23,6 +26,11 @@ type MacroPayload struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description"`
 	Steps       []MacroStep `json:"steps"`
+}
+
+type ApplyMacroRequest struct {
+	MacroID  string `json:"macro_id"`
+	ServerID string `json:"server_id"`
 }
 
 // HandleGetMacros returns all saved Macros
@@ -146,5 +154,66 @@ func HandleDeleteMacro(database *gorm.DB) http.HandlerFunc {
 			"status":  "success",
 			"message": "Macro deleted successfully",
 		})
+	}
+}
+
+// HandleApplyMacro executes a saved pipeline for an existing user
+func HandleApplyMacro(database *gorm.DB, hub *agenthub.Hub) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID := chi.URLParam(r, "id")
+		
+		var req ApplyMacroRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid payload", http.StatusBadRequest)
+			return
+		}
+
+		// Fetch User, Macro, and existing Access
+		var user db.User
+		if err := database.First(&user, "id = ?", userID).Error; err != nil {
+			http.Error(w, "User not found", http.StatusNotFound)
+			return
+		}
+
+		var macro db.Macro
+		if err := database.First(&macro, "id = ?", req.MacroID).Error; err != nil {
+			http.Error(w, "Macro not found", http.StatusNotFound)
+			return
+		}
+
+		var steps []MacroStep
+		if err := json.Unmarshal([]byte(macro.Steps), &steps); err != nil {
+			http.Error(w, "Invalid macro JSON", http.StatusInternalServerError)
+			return
+		}
+
+		// Execute the pipeline blocks synchronously
+		payload := map[string]interface{}{
+			"username":       user.Username,
+			"ssh_public_key": user.SSHPublicKey,
+			// Note: We do not pass the password for existing users. Post-onboarding 
+			// macros (like docker_container:create) shouldn't require it.
+		}
+
+		pipelineSuccess := true
+		for _, step := range steps {
+			event := fmt.Sprintf("%s:%s", step.Module, step.Action)
+			log.Printf("Executing manual macro %s on agent %s...", event, req.ServerID)
+
+			res, err := hub.DispatchTaskSync(req.ServerID, event, payload, 30*time.Second)
+			if err != nil || res.Status == "FAILED" {
+				log.Printf("Pipeline aborted on %s: Step '%s' failed.", req.ServerID, event)
+				pipelineSuccess = false
+				break
+			}
+		}
+
+		if !pipelineSuccess {
+			http.Error(w, "Macro execution failed or timed out", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 	}
 }
