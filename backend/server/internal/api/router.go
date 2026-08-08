@@ -58,6 +58,8 @@ func NewRouter(
         r.Delete("/macros/{id}", HandleDeleteMacro(database))
     })
 
+    r.Get("/api/docs/{slug}", HandleGetPublicPage(database))
+
     // --- 2. Invite / Onboarding API (Unauthenticated initially, tokens checked inside handlers) ---
     r.Route("/api/invite", func(r chi.Router) {
         r.Get("/{token}", HandleGetInviteData(database))

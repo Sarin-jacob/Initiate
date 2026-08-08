@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -104,7 +105,32 @@ func HandleGetPageBySlug(database *gorm.DB) http.HandlerFunc {
 	}
 }
 
-// HandlePreviewPage accepts raw markdown, injects mock data, and returns rendered HTML
+// sanitizeTemplate prevents Go's text/template from crashing on unknown variables
+func sanitizeTemplate(content string, isPreview bool) string {
+	// 1. Swap known variables with mock data or placeholders
+	if isPreview {
+		content = strings.ReplaceAll(content, "{{.Username}}", "JaneDoe")
+		content = strings.ReplaceAll(content, "{{.Email}}", "jane.doe@company.com")
+		content = strings.ReplaceAll(content, "{{.GiteaURL}}", "https://gitea.example.com")
+		content = strings.ReplaceAll(content, "{{.SystemURL}}", "https://nexus.example.com")
+		content = strings.ReplaceAll(content, "{{.Token}}", "preview-token-xyz")
+		content = strings.ReplaceAll(content, "{{.InviteURL}}", "https://nexus.example.com/invite?token=preview")
+	} else {
+		// Public Docs don't have user context, so we show placeholders
+		content = strings.ReplaceAll(content, "{{.Username}}", "[Your Username]")
+		content = strings.ReplaceAll(content, "{{.Email}}", "[Your Email]")
+		content = strings.ReplaceAll(content, "{{.GiteaURL}}", "[Gitea URL]")
+		content = strings.ReplaceAll(content, "{{.SystemURL}}", "[System URL]")
+	}
+
+	// 2. Escape any remaining {{ }} so the Go template engine treats them as literal strings
+	content = strings.ReplaceAll(content, "{{", "&#123;&#123;")
+	content = strings.ReplaceAll(content, "}}", "&#125;&#125;")
+	
+	return content
+}
+
+// HandlePreviewPage processes markdown safely for the Admin editor
 func HandlePreviewPage() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req PagePreviewRequest
@@ -113,18 +139,12 @@ func HandlePreviewPage() http.HandlerFunc {
 			return
 		}
 
-		// Inject realistic mock data for the admin preview
-		mockData := markdown.OnboardingTemplateData{
-			Username:  "JaneDoe",
-			Email:     "jane.doe@company.com",
-			GiteaURL:  "https://gitea.example.com",
-			SystemURL: "https://nexus.example.com",
-			Token:     "preview-token-xyz-12345",
-		}
-
-		renderedHTML, err := markdown.RenderGFM(req.Content, mockData)
+		safeContent := sanitizeTemplate(req.Content, true)
+		
+		// Pass nil data since we already injected the strings safely
+		renderedHTML, err := markdown.RenderGFM(safeContent, nil) 
 		if err != nil {
-			http.Error(w, "Failed to render markdown preview", http.StatusInternalServerError)
+			http.Error(w, "Markdown render failed", http.StatusInternalServerError)
 			return
 		}
 
@@ -135,7 +155,7 @@ func HandlePreviewPage() http.HandlerFunc {
 	}
 }
 
-// HandleGetPublicPage returns a page without requiring JWT authentication
+// HandleGetPublicPage returns fully rendered HTML, requiring no auth
 func HandleGetPublicPage(database *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := chi.URLParam(r, "slug")
@@ -146,7 +166,13 @@ func HandleGetPublicPage(database *gorm.DB) http.HandlerFunc {
 			return
 		}
 
+		safeContent := sanitizeTemplate(page.Content, false)
+		renderedHTML, _ := markdown.RenderGFM(safeContent, nil)
+
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(page)
+		json.NewEncoder(w).Encode(map[string]string{
+			"title":        page.Title,
+			"html_content": renderedHTML,
+		})
 	}
 }

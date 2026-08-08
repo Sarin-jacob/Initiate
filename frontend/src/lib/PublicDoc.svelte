@@ -10,19 +10,11 @@
     onMount(async () => {
         try {
             // We use the markdown preview endpoint to convert the raw content to HTML safely
-            const res = await fetch(`/api/docs/${slug}`);
-            if (!res.ok) throw new Error("Document not found");
-            
-            const pageData = await res.json();
-            title = pageData.Title;
-            
-            // Pass it to our markdown renderer (same one used for onboarding previews)
-            const renderRes = await fetch('/api/admin/pages/preview', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: pageData.Content })
-            });
+            const renderRes = await fetch(`/api/docs/${slug}`);
+            if (!renderRes.ok) throw new Error("Document not found");
+
             const renderData = await renderRes.json();
+            title = renderData.title;
             htmlContent = renderData.html_content;
 
         } catch (err) {
