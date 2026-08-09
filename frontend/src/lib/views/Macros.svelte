@@ -255,7 +255,10 @@
                                                         <option value="id">user_id</option>
                                                     </select>
                                                 {:else}
-                                                    <input type="text" bind:value={binding.value} class="input input-bordered input-xs w-full font-mono" placeholder="Prompt variable name..." />
+                                                    <input type="text" bind:value={binding.value}
+                                                    required
+                                                    on:input={(e) => binding.value = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '')}
+                                                    class="input input-bordered input-xs w-full font-mono" placeholder="Prompt variable name..." />
                                                 {/if}
                                             </div>
                                         {/each}

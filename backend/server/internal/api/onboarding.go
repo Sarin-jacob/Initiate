@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -16,6 +17,7 @@ import (
 	"github.com/Sarin-jacob/Initiate/internal/db"
 	"github.com/Sarin-jacob/Initiate/internal/gitea"
 	"github.com/Sarin-jacob/Initiate/internal/mailer"
+	"github.com/Sarin-jacob/Initiate/internal/markdown"
 )
 
 type CompleteOnboardingRequest struct {
@@ -137,41 +139,51 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 
 		go func() {
 			loginURL := os.Getenv("BASE_URL")
-			subject := "Your Access is Provisioned!"
 			
-			// Base email content
-			body := fmt.Sprintf(`
-				<h2 style="margin-top: 0;">Welcome aboard, %s!</h2>
-				<p>Your systems have been fully provisioned and your access keys are now active.</p>
-				<p>You can access the primary infrastructure dashboard below:</p>
-				<a href="%s" style="background-color: #18181b; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin: 10px 0 20px 0;">Go to Dashboard</a>
-			`, user.Username, loginURL)
+			// 1. Fetch configured Welcome Email CMS page
+			var welcomeSlug db.SystemSetting
+			database.Where("key = ?", "welcome_email_slug").First(&welcomeSlug)
 
-			// RECOVER SELECTED DOCS AND ADD THEM AS BUTTONS
+			subject := "Your Access is Provisioned!"
+			bodyMD := "## Welcome aboard, {{.Username}}!\n\nYour systems are fully provisioned.\n\n[Go to Dashboard]({{.SystemURL}})"
+
+			var welcomePage db.Page
+			if welcomeSlug.Value != "" && database.Where("slug = ?", welcomeSlug.Value).First(&welcomePage).Error == nil {
+				subject = welcomePage.Title // Use CMS Title as Subject
+				bodyMD = welcomePage.Content // Use CMS Body
+			}
+
+			// 2. Render Markdown to HTML
+			emailData := markdown.OnboardingTemplateData{
+				Username:  user.Username,
+				Email:     user.Email,
+				SystemURL: loginURL, // Mapped so {{.SystemURL}} works in the markdown
+			}
+			
+			renderedHTML, err := markdown.RenderGFM(bodyMD, emailData)
+			if err != nil || renderedHTML == "" {
+				renderedHTML = fmt.Sprintf("<h2>Welcome %s!</h2><p>Your setup is complete.</p>", user.Username)
+			}
+
+			// 3. Buttonize the main link
+			styledHref := fmt.Sprintf(`style="background-color: #18181b; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin: 10px 0 20px 0;" href="%s"`, loginURL)
+			renderedHTML = strings.ReplaceAll(renderedHTML, fmt.Sprintf(`href="%s"`, loginURL), styledHref)
+
+			// 4. Append injected Docs (Keep your existing doc recovery loop here!)
 			if user.AdminContext != "" {
 				var adminCtx map[string]string
 				json.Unmarshal([]byte(user.AdminContext), &adminCtx)
-				
 				if docsJSON, ok := adminCtx["_injected_docs"]; ok && docsJSON != "" {
 					var slugs []string
 					json.Unmarshal([]byte(docsJSON), &slugs)
-					
 					if len(slugs) > 0 {
-						body += `<hr style="border: none; border-top: 1px solid #e4e4e7; margin: 30px 0;">`
-						body += `<h3 style="margin-bottom: 15px;">Your Assigned Documentation</h3>`
-						body += `<p>Please review the following guides before connecting to the servers:</p>`
-						
+						renderedHTML += `<hr style="border: none; border-top: 1px solid #e4e4e7; margin: 30px 0;">`
+						renderedHTML += `<h3>Your Assigned Documentation</h3>`
 						for _, slug := range slugs {
 							var doc db.Page
 							if err := database.First(&doc, "slug = ?", slug).Error; err == nil {
-								// NOTE: Your public docs route is /api/docs/{slug} on the backend, 
-								// but usually you have a frontend route like /?docs={slug}
-								docURL := fmt.Sprintf("%s/?docs=%s", baseSystemURL, doc.Slug)
-								
-								// Render the doc link as a nice outlined button
-								body += fmt.Sprintf(`
-									<a href="%s" style="border: 2px solid #e4e4e7; color: #3f3f46; padding: 8px 16px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin: 0 10px 10px 0; background-color: #ffffff;">%s</a>
-								`, docURL, doc.Title)
+								docURL := fmt.Sprintf("%s/?docs=%s", os.Getenv("BASE_URL"), doc.Slug)
+								renderedHTML += fmt.Sprintf(`<a href="%s" style="border: 2px solid #e4e4e7; color: #3f3f46; padding: 8px 16px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin: 0 10px 10px 0;">%s</a>`, docURL, doc.Title)
 							}
 						}
 					}
@@ -179,7 +191,7 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 			}
 
 			if emailer != nil {
-				emailer.SendHTML(user.Email, subject, body)
+				emailer.SendHTML(user.Email, subject, renderedHTML)
 			}
 		}()
 
