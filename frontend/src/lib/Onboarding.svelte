@@ -132,7 +132,7 @@
                 <!-- Top Header Section -->
                 <div class="bg-primary text-primary-content p-8 text-center relative">
                     {#if viewingCustomPage}
-                        <button on:click={backToWelcome} class="btn btn-sm btn-ghost absolute left-4 top-4 opacity-80 hover:opacity-100">
+                        <button on:click={backToWelcome} class="btn btn-sm btn-ghost text-primary-content absolute left-4 top-4 opacity-80 hover:opacity-100 hover:text-accent">
                             &larr; Back to Welcome
                         </button>
                     {/if}

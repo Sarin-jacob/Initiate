@@ -123,7 +123,7 @@ func HandleInviteUser(database *gorm.DB, emailer *mailer.Mailer, baseSystemURL s
 				var doc db.Page
 				if database.Where("slug = ?", slug).First(&doc).Error == nil {
 					// The frontend router intercepts /api/invite/.../page/ URLs!
-					markdownContent += fmt.Sprintf("* [%s](/api/invite/{{.Token}}/page/%s)\n", doc.Title, doc.Slug)
+					markdownContent += fmt.Sprintf("- [%s](/api/invite/{{.Token}}/page/%s)\n", doc.Title, doc.Slug)
 				}
 			}
 			docsJSON, _ := json.Marshal(req.DocSlugs)
@@ -201,8 +201,10 @@ func HandleInviteUser(database *gorm.DB, emailer *mailer.Mailer, baseSystemURL s
 
 		// 3. Inject Button Styling for the main Invite URL
 		// We use string replacement to make the standard markdown link look like a beautiful button in the email client
-		buttonStyle := `style="background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin: 16px 0;"`
-		renderedEmailHTML = strings.ReplaceAll(renderedEmailHTML, `<a href="`+inviteURL+`"`, `<a `+buttonStyle+` href="`+inviteURL+`"`)
+		inviteHref := fmt.Sprintf(`href="%s"`, inviteURL)
+		styledHref := fmt.Sprintf(`style="background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin: 16px 0;" href="%s"`, inviteURL)
+		
+		renderedEmailHTML = strings.ReplaceAll(renderedEmailHTML, inviteHref, styledHref)
 
 		// 4. Send Email
 		if emailer != nil {

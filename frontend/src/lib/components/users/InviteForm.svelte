@@ -35,6 +35,7 @@
         } else {
             selectedTargets = [...selectedTargets, id];
         }
+        updateAdminVars(selectedTargets);
     }
 
     function toggleDoc(slug) {
@@ -45,8 +46,8 @@
         }
     }
 
-    async function updateAdminVars() {
-        if (selectedTargets.length === 0) { // FIXED: Use selectedTargets
+    async function updateAdminVars(targets) {
+        if (!targets || targets.length === 0) {
             requiredAdminVars = [];
             adminInputs = {};
             return;
@@ -56,8 +57,8 @@
         try {
             const res = await fetch('/api/admin/macros/admin-vars', {
                 method: 'POST',
-                headers: headers, 
-                body: JSON.stringify({ target_ids: selectedTargets }) // FIXED: Use selectedTargets
+                headers: headers, // Make sure 'headers' is defined at the top of your script!
+                body: JSON.stringify({ target_ids: targets }) // Send the fresh array
             });
             const data = await res.json();
             
@@ -154,7 +155,7 @@
                     <div class="space-y-2 border border-base-300 p-4 rounded-xl max-h-48 overflow-y-auto">
                         {#each servers as server}
                             <label class="flex items-center gap-4 p-4 border border-base-300 rounded-xl cursor-pointer hover:bg-base-200/50 transition-colors {selectedTargets.includes(server.ID) ? 'border-primary bg-primary/5' : 'bg-base-100'}">
-                                <input type="checkbox" class="checkbox checkbox-primary" checked={selectedTargets.includes(server.ID)} on:change={() => { toggleTarget(server.ID); updateAdminVars(); }} />
+                                <input type="checkbox" class="checkbox checkbox-primary" checked={selectedTargets.includes(server.ID)} on:change={() => toggleTarget(server.ID)} />
                                 <div>
                                     <div class="font-bold">{server.Name}</div>
                                     <div class="text-sm opacity-60">
@@ -189,7 +190,7 @@
 
                 <!-- DOCUMENTATION INJECTION -->
                 <div>
-                    <h3 class="font-bold text-lg mb-4">2. Include Documentation:</h3>
+                    <label class="label"><span class="label-text font-bold">Assign Edge Servers</span></label>
                     <p class="text-sm opacity-70 mb-4">Selected guides will be linked in the user's welcome email.</p>
                     <div class="space-y-2 max-h-64 overflow-y-auto">
                         {#each pages as page}

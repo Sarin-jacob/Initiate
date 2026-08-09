@@ -173,7 +173,7 @@
                         
                         <div class="dropdown dropdown-end">
                             <div tabindex="0" role="button" class="btn btn-xs btn-outline">Insert Variable</div>
-                            <ul class="dropdown-content z-[1] menu p-2 shadow-xl bg-base-100 rounded-box w-48 text-md font-mono border border-base-300">
+                            <ul class="dropdown-content z-1 menu p-2 shadow-xl bg-base-100 rounded-box w-48 text-md font-mono border border-base-300">
                                 {#each cheatSheet as item}
                                     <li><a on:click={() => copyVar(item)}>{item}</a></li>
                                 {/each}
