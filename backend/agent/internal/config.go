@@ -15,7 +15,7 @@ type ServerConfig struct {
 // ActionConfig defines a single symmetrical action (e.g., 'create' or 'delete')
 type ActionConfig struct {
 	Description string   `yaml:"description"` // UI Metadata: What does this do?
-	Variables   []string `yaml:"variables"`   // UI Metadata: Expected JSON payload keys
+	Variables   map[string]string `yaml:"variables"`   // UI Metadata: Expected JSON payload keys
 	Command     string   `yaml:"command"`     // e.g., "/usr/sbin/useradd"
 	Args        []string `yaml:"args"`        // e.g., ["-m", "{{.username}}"]
 }
