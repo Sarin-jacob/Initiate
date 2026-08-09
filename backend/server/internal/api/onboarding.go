@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"regexp"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -13,14 +15,14 @@ import (
 	"github.com/Sarin-jacob/Initiate/internal/agenthub"
 	"github.com/Sarin-jacob/Initiate/internal/db"
 	"github.com/Sarin-jacob/Initiate/internal/gitea"
+	"github.com/Sarin-jacob/Initiate/internal/mailer"
 )
 
 type CompleteOnboardingRequest struct {
-	Password     string `json:"password"`
-	SSHPublicKey string `json:"ssh_public_key"`
+	UserInputs map[string]string `json:"user_inputs"` // Captures the dynamic form!
 }
 
-func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient *gitea.Client) http.HandlerFunc {
+func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient *gitea.Client, emailer *mailer.Mailer, baseSystemURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req CompleteOnboardingRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -36,25 +38,43 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 			return
 		}
 
-		hashBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-		if err != nil {
-			http.Error(w, "Failed to process password", http.StatusInternalServerError)
-			return
+		// 1. Gracefully extract core fields if they exist in the dynamic inputs
+		password, hasPassword := req.UserInputs["password"]
+		sshKey, hasSSH := req.UserInputs["ssh_public_key"]
+
+		var hashString string
+		if hasPassword && password != "" {
+			hashBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+			if err == nil {
+				hashString = string(hashBytes)
+			}
 		}
 
+		// 2. Build the Unified Payload Dictionary (Bridge to Phase 4)
+		// This map will look like: {"sys.username": "sarin", "user.password": "secret123"}
+		payload := map[string]interface{}{
+			"sys.username": user.Username,
+			"sys.email":    user.Email,
+			"sys.id":       user.ID,
+		}
+		// Inject all the user's dynamic inputs into the payload mapping
+		for k, v := range req.UserInputs {
+			payload[fmt.Sprintf("user.%s", k)] = v
+		}
+
+		var adminContext map[string]string
+		if user.AdminContext != "" {
+			json.Unmarshal([]byte(user.AdminContext), &adminContext)
+			for k, v := range adminContext {
+				payload[fmt.Sprintf("admin.%s", k)] = v
+			}
+		}
+
+		// 3. UNIFIED PIPELINE EXECUTION
 		var accesses []db.UserAccess
 		database.Where("user_id = ?", user.ID).Find(&accesses)
 
-		payload := map[string]interface{}{
-			"username":       user.Username,
-			"password":       req.Password,
-			"email":          user.Email, // Needed for Gitea Virtual Agent
-			"ssh_public_key": req.SSHPublicKey,
-		}
-
-		// UNIFIED PIPELINE EXECUTION
 		for _, access := range accesses {
-			// Look up the actual Server/Virtual Agent to find out what its macro is
 			var target db.TargetServer
 			if err := database.First(&target, "id = ?", access.TargetID).Error; err != nil {
 				continue
@@ -62,7 +82,7 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 
 			if target.ProvisionMacroID == "" {
 				database.Model(&access).Update("status", "ACTIVE")
-				continue // Agent opts out of automated provisioning
+				continue 
 			}
 
 			var macro db.Macro
@@ -79,9 +99,14 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 				event := fmt.Sprintf("%s:%s", step.Module, step.Action)
 				log.Printf("Executing %s on target %s...", event, target.ID)
 
-				res, err := hub.DispatchTaskSync(target.ID, event, payload, 30*time.Second)
+				// THE MAGIC HAPPENS HERE: Resolve specific parameters for this exact step
+				resolvedPayload := resolveStepParams(step.Params, payload)
+
+				// Dispatch using the perfectly sculpted resolvedPayload
+				res, err := hub.DispatchTaskSync(target.ID, event, resolvedPayload, 30*time.Second)
+				
 				if err != nil || res.Status == "FAILED" {
-					log.Printf("Pipeline aborted on %s: Step '%s' failed.", target.ID, event)
+					log.Printf("Pipeline aborted on %s: Step '%s' failed. Error: %s", target.ID, event, res.Output)
 					pipelineSuccess = false
 					break
 				}
@@ -94,17 +119,100 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 			}
 		}
 
-		// Finalize Onboarding
+		// 4. Finalize Onboarding
+		updates := map[string]interface{}{
+			"status": "ACTIVE",
+		}
+		if hashString != "" {
+			updates["password_hash"] = hashString
+		}
+		if hasSSH {
+			updates["ssh_public_key"] = sshKey
+		}
+
 		tx := database.Begin()
 		tx.Model(&invite).Update("used_at", time.Now())
-		tx.Model(&user).Updates(map[string]interface{}{
-			"password_hash":  string(hashBytes),
-			"ssh_public_key": req.SSHPublicKey,
-			"status":         "ACTIVE",
-		})
+		tx.Model(&user).Updates(updates)
 		tx.Commit()
+
+		go func() {
+			loginURL := os.Getenv("BASE_URL")
+			subject := "Your Access is Provisioned!"
+			
+			// Base email content
+			body := fmt.Sprintf(`
+				<h2 style="margin-top: 0;">Welcome aboard, %s!</h2>
+				<p>Your systems have been fully provisioned and your access keys are now active.</p>
+				<p>You can access the primary infrastructure dashboard below:</p>
+				<a href="%s" style="background-color: #18181b; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin: 10px 0 20px 0;">Go to Dashboard</a>
+			`, user.Username, loginURL)
+
+			// RECOVER SELECTED DOCS AND ADD THEM AS BUTTONS
+			if user.AdminContext != "" {
+				var adminCtx map[string]string
+				json.Unmarshal([]byte(user.AdminContext), &adminCtx)
+				
+				if docsJSON, ok := adminCtx["_injected_docs"]; ok && docsJSON != "" {
+					var slugs []string
+					json.Unmarshal([]byte(docsJSON), &slugs)
+					
+					if len(slugs) > 0 {
+						body += `<hr style="border: none; border-top: 1px solid #e4e4e7; margin: 30px 0;">`
+						body += `<h3 style="margin-bottom: 15px;">Your Assigned Documentation</h3>`
+						body += `<p>Please review the following guides before connecting to the servers:</p>`
+						
+						for _, slug := range slugs {
+							var doc db.Page
+							if err := database.First(&doc, "slug = ?", slug).Error; err == nil {
+								// NOTE: Your public docs route is /api/docs/{slug} on the backend, 
+								// but usually you have a frontend route like /?docs={slug}
+								docURL := fmt.Sprintf("%s/?docs=%s", baseSystemURL, doc.Slug)
+								
+								// Render the doc link as a nice outlined button
+								body += fmt.Sprintf(`
+									<a href="%s" style="border: 2px solid #e4e4e7; color: #3f3f46; padding: 8px 16px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin: 0 10px 10px 0; background-color: #ffffff;">%s</a>
+								`, docURL, doc.Title)
+							}
+						}
+					}
+				}
+			}
+
+			if emailer != nil {
+				emailer.SendHTML(user.Email, subject, body)
+			}
+		}()
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": "Provisioning pipelines completed."})
 	}
+}
+
+var paramRegex = regexp.MustCompile(`\{\{(.*?)\}\}`)
+
+// resolveStepParams takes the macro's bound parameters and fills them using the master context dictionary
+func resolveStepParams(stepParams map[string]string, contextData map[string]interface{}) map[string]interface{} {
+	resolved := make(map[string]interface{})
+
+	for key, val := range stepParams {
+		// Check if the value is a variable binding like {{sys.username}}
+		matches := paramRegex.FindStringSubmatch(val)
+		
+		if len(matches) == 2 {
+			varName := matches[1] // Extracts "sys.username"
+			
+			// Look up the extracted variable name in our master payload dictionary
+			if actualValue, exists := contextData[varName]; exists {
+				resolved[key] = actualValue
+			} else {
+				// Fallback if missing (prevents edge agent from receiving null/panicking)
+				log.Printf("Warning: Missing context variable for %s", varName)
+				resolved[key] = ""
+			}
+		} else {
+			// It's a static value (e.g., the string "docker" or "/bin/bash")
+			resolved[key] = val
+		}
+	}
+	return resolved
 }

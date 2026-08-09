@@ -56,6 +56,7 @@ func NewRouter(
         r.Post("/macros", HandleCreateMacro(database))
         r.Put("/macros/{id}", HandleUpdateMacro(database))
         r.Delete("/macros/{id}", HandleDeleteMacro(database))
+        r.Post("/macros/admin-vars", HandleGetAdminVars(database))
     })
 
     r.Get("/api/docs/{slug}", HandleGetPublicPage(database))
@@ -69,7 +70,7 @@ func NewRouter(
 		// These handlers now securely trust that the token is valid!
 		r.Get("/", HandleGetInviteData(database))
 		r.Get("/page/{slug}", HandleGetPageBySlug(database))
-		r.Post("/complete", HandleCompleteOnboarding(database, hub, giteaClient))
+		r.Post("/complete", HandleCompleteOnboarding(database, hub, giteaClient, emailer, baseSystemURL))
 	})
 
     // --- 3. Edge Agent WebSocket (Secured by Ed25519) ---

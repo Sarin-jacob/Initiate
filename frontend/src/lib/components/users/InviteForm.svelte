@@ -6,7 +6,10 @@
     export let pages = [];
 
     const dispatch = createEventDispatcher();
-    const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer test-admin' };
+    const headers = { 
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + localStorage.getItem('nexus_jwt') 
+                };
 
     let isInviting = false;
     let alertMsg = '';
@@ -14,6 +17,10 @@
     let selectedTargets = [];
     let selectedDocs = [];
     let allocations = {};
+
+    let requiredAdminVars = [];
+    let adminInputs = {};
+    let isInspectingVars = false;
 
     // Initialize allocations when servers prop loads
     $: if (servers.length > 0 && Object.keys(allocations).length === 0) {
@@ -38,6 +45,36 @@
         }
     }
 
+    async function updateAdminVars() {
+        if (selectedTargets.length === 0) { // FIXED: Use selectedTargets
+            requiredAdminVars = [];
+            adminInputs = {};
+            return;
+        }
+
+        isInspectingVars = true;
+        try {
+            const res = await fetch('/api/admin/macros/admin-vars', {
+                method: 'POST',
+                headers: headers, 
+                body: JSON.stringify({ target_ids: selectedTargets }) // FIXED: Use selectedTargets
+            });
+            const data = await res.json();
+            
+            const oldInputs = { ...adminInputs };
+            adminInputs = {};
+            
+            requiredAdminVars = data.admin_vars || [];
+            requiredAdminVars.forEach(v => {
+                adminInputs[v] = oldInputs[v] || '';
+            });
+        } catch (err) {
+            console.error("Failed to inspect macro variables", err);
+        } finally {
+            isInspectingVars = false;
+        }
+    }
+
     async function handleInvite(e) {
         e.preventDefault();
         if (selectedTargets.length === 0) return alertMsg = "Select at least one target system.";
@@ -51,7 +88,8 @@
             expire_amount: parseInt(form.expireAmount.value) || 0,
             expire_unit: form.expireUnit.value,
             target_ids: selectedTargets,
-            doc_slugs: selectedDocs
+            doc_slugs: selectedDocs,
+            admin_inputs: adminInputs
         };
 
         try {
@@ -100,7 +138,7 @@
                 <label class="label"><span class="label-text font-bold">Automated Expiration</span></label>
                 <div class="join w-full">
                     <input type="number" name="expireAmount" min="0" placeholder="0 = Never" class="input input-bordered join-item w-full input-lg" />
-                    <select name="expireUnit" class="select select-bordered join-item bg-primary input-lg h-auto w-1/3">
+                    <select name="expireUnit" class="select select-bordered text-primary-content join-item bg-primary input-lg h-auto w-1/3">
                         <option value="days">Days</option>
                         <option value="weeks">Weeks</option>
                         <option value="months">Months</option>
@@ -110,13 +148,13 @@
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8 border-t border-base-200 pt-8">
-                <!-- TARGET SELECTION -->
-                <div>
-                    <h3 class="font-bold text-lg mb-4">1. Grant Access To:</h3>
-                    <div class="space-y-3">
+                <!-- TARGET SERVER CHECKBOXES -->
+                <div class="form-control mb-4">
+                    <label class="label"><span class="label-text font-bold">Assign Edge Servers</span></label>
+                    <div class="space-y-2 border border-base-300 p-4 rounded-xl max-h-48 overflow-y-auto">
                         {#each servers as server}
                             <label class="flex items-center gap-4 p-4 border border-base-300 rounded-xl cursor-pointer hover:bg-base-200/50 transition-colors {selectedTargets.includes(server.ID) ? 'border-primary bg-primary/5' : 'bg-base-100'}">
-                                <input type="checkbox" class="checkbox checkbox-primary" checked={selectedTargets.includes(server.ID)} on:change={() => toggleTarget(server.ID)} />
+                                <input type="checkbox" class="checkbox checkbox-primary" checked={selectedTargets.includes(server.ID)} on:change={() => { toggleTarget(server.ID); updateAdminVars(); }} />
                                 <div>
                                     <div class="font-bold">{server.Name}</div>
                                     <div class="text-sm opacity-60">
@@ -127,6 +165,27 @@
                         {/each}
                     </div>
                 </div>
+
+                <!-- DYNAMIC ADMIN PROMPTS -->
+                {#if isInspectingVars}
+                    <div class="flex items-center gap-2 text-sm opacity-50 mb-4">
+                        <span class="loading loading-spinner loading-xs"></span> Inspecting pipelines...
+                    </div>
+                {:else if requiredAdminVars.length > 0}
+                    <div class="bg-base-200/50 p-4 rounded-xl border border-base-300 mb-6 space-y-4">
+                        <h3 class="text-sm font-bold opacity-70 flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0..."></path></svg>
+                            Required Pipeline Context
+                        </h3>
+                        
+                        {#each requiredAdminVars as varName}
+                            <div class="form-control">
+                                <label class="label"><span class="label-text font-bold capitalize">{varName.replace(/_/g, ' ')}</span></label>
+                                <input type="text" bind:value={adminInputs[varName]} required class="input input-bordered input-sm w-full font-mono" placeholder="Provide value for {varName}..." />
+                            </div>
+                        {/each}
+                    </div>
+                {/if}
 
                 <!-- DOCUMENTATION INJECTION -->
                 <div>

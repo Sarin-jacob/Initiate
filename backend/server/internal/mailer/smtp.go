@@ -3,7 +3,6 @@ package mailer
 import (
 	"bytes"
 	"fmt"
-	"html/template"
 	"net/smtp"
 )
 
@@ -23,61 +22,48 @@ func NewMailer(config SMTPConfig) *Mailer {
 	return &Mailer{config: config}
 }
 
-// InviteData contains the variables injected into the HTML email template
-type InviteData struct {
-	Username       string
-	InviteURL      string
-	ExpiresInHours int
-}
-
-const inviteTemplate = `
-<!DOCTYPE html>
-<html>
-<head>
-	<meta charset="UTF-8">
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-	<h2>Welcome to the Server Network, {{.Username}}!</h2>
-	<p>An administrator has provisioned access for you.</p>
-	<p>Please click the button below to complete your onboarding, set your password, and upload your SSH public key.</p>
-	<p style="margin: 30px 0;">
-		<a href="{{.InviteURL}}" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px;">Complete Onboarding</a>
-	</p>
-	<p><em>This link expires in {{.ExpiresInHours}} hours.</em></p>
-</body>
-</html>
-`
-
-// SendInvite generates and dispatches the HTML email
-func (m *Mailer) SendInvite(toEmail, username, inviteURL string, expiresInHours int) error {
-	tmpl, err := template.New("invite").Parse(inviteTemplate)
-	if err != nil {
-		return fmt.Errorf("failed to parse email template: %w", err)
-	}
-
-	data := InviteData{
-		Username:       username,
-		InviteURL:      inviteURL,
-		ExpiresInHours: expiresInHours,
-	}
-
+// SendHTML generates and dispatches a dynamically styled HTML email
+func (m *Mailer) SendHTML(toEmail, subject, htmlBody string) error {
 	var body bytes.Buffer
+
 	// Construct MIME headers for HTML email
 	body.WriteString(fmt.Sprintf("To: %s\r\n", toEmail))
 	body.WriteString(fmt.Sprintf("From: %s\r\n", m.config.From))
-	body.WriteString("Subject: Action Required: Complete your Server Onboarding\r\n")
+	body.WriteString(fmt.Sprintf("Subject: %s\r\n", subject))
 	body.WriteString("MIME-version: 1.0\r\n")
 	body.WriteString("Content-Type: text/html; charset=\"UTF-8\"\r\n")
 	body.WriteString("\r\n")
-	
-	if err := tmpl.Execute(&body, data); err != nil {
-		return fmt.Errorf("failed to execute template: %w", err)
-	}
+
+	// Wrap the injected HTML in an email-safe container with basic typography
+	fullHTML := fmt.Sprintf(`
+	<!DOCTYPE html>
+	<html>
+	<head>
+		<meta charset="UTF-8">
+	</head>
+	<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333333; background-color: #f4f4f5; margin: 0; padding: 40px 20px;">
+		<table width="100%%" border="0" cellspacing="0" cellpadding="0">
+			<tr>
+				<td align="center">
+					<div style="max-width: 600px; text-align: left; background-color: #ffffff; padding: 40px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e4e4e7;">
+						%s
+					</div>
+					<div style="max-width: 600px; text-align: center; margin-top: 20px; font-size: 12px; color: #a1a1aa;">
+						Automated provisioning message sent by NexusIAM.
+					</div>
+				</td>
+			</tr>
+		</table>
+	</body>
+	</html>
+	`, htmlBody)
+
+	body.WriteString(fullHTML)
 
 	auth := smtp.PlainAuth("", m.config.Username, m.config.Password, m.config.Host)
 	addr := fmt.Sprintf("%s:%s", m.config.Host, m.config.Port)
 
-	err = smtp.SendMail(addr, auth, m.config.From, []string{toEmail}, body.Bytes())
+	err := smtp.SendMail(addr, auth, m.config.From, []string{toEmail}, body.Bytes())
 	if err != nil {
 		return fmt.Errorf("failed to send SMTP email: %w", err)
 	}

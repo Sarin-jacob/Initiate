@@ -64,7 +64,29 @@
         editingId = macro.ID;
         formName = macro.Name;
         formDesc = macro.Description;
-        try { formSteps = JSON.parse(macro.Steps) || []; } catch { formSteps = []; }
+        
+        try { 
+            const parsedSteps = JSON.parse(macro.Steps) || []; 
+            
+            // DECOMPILE BACK TO UI STATE
+            formSteps = parsedSteps.map(step => {
+                const decompiledParams = {};
+                for (const [varName, compiledVal] of Object.entries(step.params || {})) {
+                    // Check if it's a bound variable like {{sys.username}}
+                    if (typeof compiledVal === 'string' && compiledVal.startsWith('{{') && compiledVal.endsWith('}}')) {
+                        const inner = compiledVal.slice(2, -2); // removes {{ }}
+                        const [source, ...rest] = inner.split('.'); // splits "sys" and "username"
+                        decompiledParams[varName] = { source, value: rest.join('.') };
+                    } else {
+                        // It must be a static hardcoded value
+                        decompiledParams[varName] = { source: 'static', value: compiledVal };
+                    }
+                }
+                return { ...step, params: decompiledParams };
+            });
+        } catch { 
+            formSteps = []; 
+        }
     }
 
     // --- Dynamic Step Builder ---
@@ -72,15 +94,24 @@
     function addStep() {
         if (!selectedModule || !selectedAction) return;
         
-        // Read required variables for this action from the capability map
         const requiredVars = capabilityMap[selectedModule][selectedAction] || {};
-        
-        // Initialize an empty params mapping object
         const stepParams = {};
+        
         for (const varName in requiredVars) {
-            // Default to prompting the User for secrets, otherwise System Data
-            const defaultSource = requiredVars[varName] === 'secret' ? 'user' : 'sys';
-            const defaultValue = requiredVars[varName] === 'secret' ? 'password' : 'username';
+            let defaultSource = 'static';
+            let defaultValue = '';
+            
+            // Smarter intelligent defaults based on type hints!
+            if (requiredVars[varName] === 'secret') {
+                defaultSource = 'user';
+                defaultValue = varName; // defaults to 'password'
+            } else if (requiredVars[varName] === 'textarea') {
+                defaultSource = 'user';
+                defaultValue = varName; // defaults to 'ssh_public_key'
+            } else if (varName.includes('username')) {
+                defaultSource = 'sys';
+                defaultValue = 'username';
+            }
             
             stepParams[varName] = { 
                 source: defaultSource, 
@@ -204,7 +235,11 @@
                                             <div class="flex flex-col md:flex-row gap-2 items-start md:items-center">
                                                 <div class="font-mono text-xs w-32 truncate" title={varName}>{varName}</div>
                                                 
-                                                <select bind:value={binding.source} class="select select-bordered select-xs w-full md:w-32">
+                                                <select 
+                                                    bind:value={binding.source} 
+                                                    on:change={() => binding.value = binding.source === 'sys' ? 'username' : ''} 
+                                                    class="select select-bordered select-xs w-full md:w-32"
+                                                >
                                                     <option value="sys">System Data</option>
                                                     <option value="admin">Admin Prompt</option>
                                                     <option value="user">User Prompt</option>

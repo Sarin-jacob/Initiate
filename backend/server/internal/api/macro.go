@@ -17,8 +17,9 @@ import (
 
 // MacroStep defines a single execution block in the pipeline
 type MacroStep struct {
-	Module string `json:"module"` // e.g., "system_user"
-	Action string `json:"action"` // e.g., "create"
+	Module string            `json:"module"`
+	Action string            `json:"action"`
+	Params map[string]string `json:"params"` // NEW: Captures the UI Parameter Bindings!
 }
 
 // MacroPayload is the JSON structure sent from the Svelte UI
