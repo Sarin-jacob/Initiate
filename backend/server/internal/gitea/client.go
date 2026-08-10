@@ -36,3 +36,8 @@ type CreateUserOption struct {
 type EditUserOption struct {
 	Active *bool `json:"active,omitempty"` // Pointer so we can omit it if nil, but send false if explicitly disabled
 }
+
+type ChangePasswordOption struct {
+	Password           string `json:"password"`
+	MustChangePassword *bool   `json:"must_change_password"`
+}

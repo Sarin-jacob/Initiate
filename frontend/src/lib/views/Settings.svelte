@@ -9,6 +9,7 @@
         gitea_url: '',
         default_invite_slug: 'default-onboarding',
         default_email_slug: 'default-email', // NEW
+        welcome_email_slug: 'default-welcome',
         user_expire_days: '0'
     };
 
@@ -103,13 +104,23 @@
                     <h2 class="card-title text-xl border-b border-base-200 pb-2 mb-4">System Templates</h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div class="form-control">
-                            <label class="label"><span class="label-text font-bold">Default Welcome Email</span></label>
+                            <label class="label"><span class="label-text font-bold">Default Invite Email</span></label>
                             <select bind:value={settings.default_email_slug} class="select select-bordered w-full font-mono">
                                 {#each pages as page}
                                     <option value={page.Slug}>{page.Title} (/{page.Slug})</option>
                                 {/each}
                             </select>
                             <label class="label"><span class="label-text-alt opacity-70">The email dispatched with the token link.</span></label>
+                        </div>
+
+                        <div class="form-control">
+                            <label class="label"><span class="label-text font-bold">Default Welcome Email</span></label>
+                            <select bind:value={settings.welcome_email_slug} class="select select-bordered w-full font-mono">
+                                {#each pages as page}
+                                    <option value={page.Slug}>{page.Title} (/{page.Slug})</option>
+                                {/each}
+                            </select>
+                            <label class="label"><span class="label-text-alt opacity-70">The email dispatched when user onboards.</span></label>
                         </div>
 
                         <div class="form-control">

@@ -3,17 +3,18 @@ package gitea
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 )
 
 // CreateUser provisions a new user account in Gitea
-func (c *Client) CreateUser(ctx context.Context, username, email, password string) error {
+func (c *Client) CreateUser(ctx context.Context, username, email, password string, mustChangePassword bool) error {
 	opt := CreateUserOption{
 		Username:           username,
 		Email:              email,
 		Password:           password,
-		MustChangePassword: true, // Forces them to change it on their first native Gitea login
-		SendNotify:         false, // Our Central Server handles invite emails, so Gitea shouldn't
+		MustChangePassword: mustChangePassword,
+		SendNotify:         false, // Central Server handles emails
 	}
 
 	resp, err := c.doRequest(ctx, http.MethodPost, "/admin/users", opt)
@@ -23,14 +24,13 @@ func (c *Client) CreateUser(ctx context.Context, username, email, password strin
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("expected status 201 Created, got %d", resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Gitea API Error (%d): %s", resp.StatusCode, string(bodyBytes))
 	}
-
 	return nil
 }
 
-// DeleteUser removes a user. If purge is true, it deletes their repositories.
-// If purge is false, repositories are kept (converted to Organization or unowned assets).
+// DeleteUser removes a user.
 func (c *Client) DeleteUser(ctx context.Context, username string, purge bool) error {
 	path := fmt.Sprintf("/admin/users/%s?purge=%t", username, purge)
 	
@@ -40,15 +40,13 @@ func (c *Client) DeleteUser(ctx context.Context, username string, purge bool) er
 	}
 	defer resp.Body.Close()
 
-	// Gitea returns 204 No Content or 200 OK on successful deletion
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("expected status 204/200 on delete, got %d", resp.StatusCode)
 	}
-
 	return nil
 }
 
-// DisableUser locks the Gitea account without deleting any data (ARCHIVED state)
+// DisableUser locks the Gitea account (ARCHIVED state)
 func (c *Client) DisableUser(ctx context.Context, username string) error {
 	active := false
 	opt := EditUserOption{
@@ -65,6 +63,26 @@ func (c *Client) DisableUser(ctx context.Context, username string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("expected status 200 OK on disable, got %d", resp.StatusCode)
 	}
+	return nil
+}
 
+// SetPassword updates a user's password and optional change requirement
+func (c *Client) SetPassword(ctx context.Context, username, password string, mustChangePassword bool) error {
+	opt := ChangePasswordOption{
+		Password:           password,
+		MustChangePassword: &mustChangePassword,
+	}
+
+	path := fmt.Sprintf("/admin/users/%s", username)
+	resp, err := c.doRequest(ctx, http.MethodPatch, path, opt)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Gitea API Error (%d): %s", resp.StatusCode, string(bodyBytes))
+	}
 	return nil
 }

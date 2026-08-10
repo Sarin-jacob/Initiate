@@ -3,7 +3,6 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
@@ -17,8 +16,9 @@ import (
 
 // MacroStep defines a single execution block in the pipeline
 type MacroStep struct {
-	Module string `json:"module"` // e.g., "system_user"
-	Action string `json:"action"` // e.g., "create"
+	Module string            `json:"module"`
+	Action string            `json:"action"`
+	Params map[string]string `json:"params"` // NEW: Captures the UI Parameter Bindings!
 }
 
 // MacroPayload is the JSON structure sent from the Svelte UI
@@ -168,7 +168,6 @@ func HandleApplyMacro(database *gorm.DB, hub *agenthub.Hub) http.HandlerFunc {
 			return
 		}
 
-		// Fetch User, Macro, and existing Access
 		var user db.User
 		if err := database.First(&user, "id = ?", userID).Error; err != nil {
 			http.Error(w, "User not found", http.StatusNotFound)
@@ -181,35 +180,66 @@ func HandleApplyMacro(database *gorm.DB, hub *agenthub.Hub) http.HandlerFunc {
 			return
 		}
 
-		var steps []MacroStep
+		var steps []MacroStep // Ensure this struct is available in this file!
 		if err := json.Unmarshal([]byte(macro.Steps), &steps); err != nil {
 			http.Error(w, "Invalid macro JSON", http.StatusInternalServerError)
 			return
 		}
 
-		// Execute the pipeline blocks synchronously
+		// BUILD V3 RESOLVER PAYLOAD
 		payload := map[string]interface{}{
-			"username":       user.Username,
-			"ssh_public_key": user.SSHPublicKey,
-			// Note: We do not pass the password for existing users. Post-onboarding 
-			// macros (like docker_container:create) shouldn't require it.
+			"sys.username": user.Username,
+			"sys.email":    user.Email,
+			"sys.id":       user.ID,
 		}
-
-		pipelineSuccess := true
-		for _, step := range steps {
-			event := fmt.Sprintf("%s:%s", step.Module, step.Action)
-			log.Printf("Executing manual macro %s on agent %s...", event, req.ServerID)
-
-			res, err := hub.DispatchTaskSync(req.ServerID, event, payload, 30*time.Second)
-			if err != nil || res.Status == "FAILED" {
-				log.Printf("Pipeline aborted on %s: Step '%s' failed.", req.ServerID, event)
-				pipelineSuccess = false
-				break
+		if user.AdminContext != "" {
+			var adminCtx map[string]string
+			json.Unmarshal([]byte(user.AdminContext), &adminCtx)
+			for k, v := range adminCtx {
+				payload[fmt.Sprintf("admin.%s", k)] = v
 			}
 		}
 
+		// FIND THE ACCESS RECORD TO SAVE LOGS
+		var access db.UserAccess
+		database.Where("user_id = ? AND target_id = ?", user.ID, req.ServerID).First(&access)
+
+		var executionTrace string
+		pipelineSuccess := true
+
+		for _, step := range steps {
+			event := fmt.Sprintf("%s:%s", step.Module, step.Action)
+			executionTrace += fmt.Sprintf("[PENDING] Manual trigger: %s...\n", event)
+
+			resolvedPayload := resolveStepParams(step.Params, payload) // Uses the V3 resolver
+			res, err := hub.DispatchTaskSync(req.ServerID, event, resolvedPayload, 30*time.Second)
+			
+			if err != nil {
+				pipelineSuccess = false
+				executionTrace += fmt.Sprintf("[ERROR] Network: %v\n", err)
+				break
+			}
+			if res.Status == "FAILED" {
+				pipelineSuccess = false
+				executionTrace += fmt.Sprintf("[FAILED] Output:\n%s\n", res.Output)
+				break
+			}
+			executionTrace += fmt.Sprintf("[SUCCESS] Output:\n%s\n", res.Output)
+		}
+
+		// Save Execution Logs
+		if access.ID != "" {
+			updates := map[string]interface{}{"execution_log": executionTrace}
+			if !pipelineSuccess {
+				updates["status"] = "FAILED"
+			} else {
+				updates["status"] = "ACTIVE"
+			}
+			database.Model(&access).Updates(updates)
+		}
+
 		if !pipelineSuccess {
-			http.Error(w, "Macro execution failed or timed out", http.StatusInternalServerError)
+			http.Error(w, "Macro execution failed. Check logs.", http.StatusInternalServerError)
 			return
 		}
 

@@ -11,13 +11,15 @@
     let submitMsg = '';
     let isSuccess = false;
 
+    // NEW: Dynamic Form State
+    let requiredVars = [];
+    let userInputs = {};
+
     // CMS / Multi-page State
     let currentHtml = '';
     let currentTitle = 'Account Setup';
     let isPageLoading = false;
-    let viewingCustomPage = false; // Tracks if we are away from the main invite template
-    
-    // Save the original invite template to easily go "back"
+    let viewingCustomPage = false; 
     let originalHtml = '';
 
     onMount(async () => {
@@ -29,12 +31,18 @@
             inviteData = data;
             currentHtml = data.html_content;
             originalHtml = data.html_content;
+
+            // Initialize Dynamic Inputs from the Backend Response
+            requiredVars = data.required_vars || [];
+            requiredVars.forEach(v => {
+                userInputs[v] = '';
+            });
+
         } catch (err) {
             fetchError = err.message;
         }
     });
 
-    // --- Dynamic CMS Page Loader ---
     async function loadPage(slug) {
         isPageLoading = true;
         try {
@@ -52,20 +60,16 @@
         }
     }
 
-    // Intercept clicks on links inside the Markdown
     function handleMarkdownClick(e) {
-        // Find the closest anchor tag clicked
         const a = e.target.closest('a');
         if (!a) return;
 
         const href = a.getAttribute('href');
         if (!href) return;
 
-        // Check if the link matches our internal API page structure
-        // e.g., /api/invite/{{.Token}}/page/ssh-guide
         const pageMatch = href.match(/\/api\/invite\/[^/]+\/page\/(.+)/);
         if (pageMatch) {
-            e.preventDefault(); // Stop the browser from navigating away
+            e.preventDefault(); 
             const slug = pageMatch[1];
             loadPage(slug);
         }
@@ -77,21 +81,17 @@
         viewingCustomPage = false;
     }
 
-    // --- Final Setup Submission ---
     async function handleSetup(e) {
         e.preventDefault();
         isLoading = true;
         submitMsg = '';
 
-        const form = e.target;
         try {
             const res = await fetch(`/api/invite/${token}/complete`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    password: form.password.value,
-                    ssh_public_key: form.sshKey.value
-                })
+                // NEW: Send the dynamically populated map!
+                body: JSON.stringify({ user_inputs: userInputs })
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message || res.statusText);
@@ -132,7 +132,7 @@
                 <!-- Top Header Section -->
                 <div class="bg-primary text-primary-content p-8 text-center relative">
                     {#if viewingCustomPage}
-                        <button on:click={backToWelcome} class="btn btn-sm btn-ghost absolute left-4 top-4 opacity-80 hover:opacity-100">
+                        <button on:click={backToWelcome} class="btn btn-sm btn-ghost text-primary-content absolute left-4 top-4 opacity-80 hover:opacity-100 hover:text-accent">
                             &larr; Back to Welcome
                         </button>
                     {/if}
@@ -145,7 +145,7 @@
                 <div class="card-body p-8">
                     <!-- Dynamic Markdown Renderer -->
                     <div 
-                        class="prose prose-sm md:prose-base max-w-none mb-8 bg-base-200 p-6 rounded-xl relative"
+                        class="prose prose-sm md:prose-base prose-a:text-primary prose-a:underline prose-a:font-bold hover:prose-a:text-primary-focus max-w-none mb-8 bg-base-200 p-6 rounded-xl relative"
                         on:click={handleMarkdownClick} 
                         role="article" 
                         tabindex="0" 
@@ -171,19 +171,28 @@
                     <div class="divider">Finalize Provisioning</div>
 
                     <form on:submit={handleSetup} class="space-y-6">
-                        <div class="form-control">
-                            <label class="label"><span class="label-text font-bold">Set Permanent Password</span></label>
-                            <input type="password" name="password" required minlength="8" class="input input-bordered input-primary w-full" placeholder="Must be at least 8 characters" />
-                        </div>
-
-                        <div class="form-control">
-                            <label class="label">
-                                <span class="label-text font-bold">SSH Public Key</span>
-                                <span class="label-text-alt text-gray-500 font-mono">Ed25519 recommended</span>
-                            </label>
-                            <textarea name="sshKey" required rows="4" class="textarea textarea-bordered textarea-primary font-mono text-sm leading-relaxed" placeholder="ssh-ed25519 AAAAC3NzaC1..."></textarea>
-                            <label class="label"><span class="label-text-alt">Paste your public key for edge server access.</span></label>
-                        </div>
+                        
+                        <!-- DYNAMIC FORM GENERATOR -->
+                        {#each requiredVars as varName}
+                            <div class="form-control">
+                                <label class="label"><span class="label-text font-bold capitalize">{varName.replace(/_/g, ' ')}</span></label>
+                                
+                                {#if varName.toLowerCase().includes('password') || varName.toLowerCase().includes('secret')}
+                                    <input type="password" bind:value={userInputs[varName]} required minlength="8" class="input input-bordered input-primary w-full" placeholder="Must be at least 8 characters" />
+                                    
+                                {:else if varName.toLowerCase().includes('ssh') || varName.toLowerCase().includes('key')}
+                                    <textarea bind:value={userInputs[varName]} required rows="4" class="textarea textarea-bordered textarea-primary font-mono text-sm leading-relaxed" placeholder="ssh-ed25519 AAAAC3NzaC1..."></textarea>
+                                    <label class="label"><span class="label-text-alt text-gray-500">Ed25519 recommended</span></label>
+                                    
+                                {:else}
+                                    <input type="text" bind:value={userInputs[varName]} required class="input input-bordered input-primary w-full" />
+                                {/if}
+                            </div>
+                        {:else}
+                            <div class="alert alert-success bg-success/10 text-sm mb-6 border border-success/20">
+                                No additional credentials required. Click below to execute your automated provisioning pipeline.
+                            </div>
+                        {/each}
 
                         <button type="submit" class="btn btn-primary btn-block btn-lg mt-4 shadow-sm" disabled={isLoading}>
                             {#if isLoading} <span class="loading loading-spinner"></span> {/if}

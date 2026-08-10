@@ -19,6 +19,7 @@ type OnboardingTemplateData struct {
 	GiteaURL  string
 	SystemURL string
 	Token     string // NEW: Pass token so admins can hyperlink between pages: /invite/{{.Token}}/page/ssh
+	InviteURL string
 }
 
 func RenderGFM(rawMarkdown string, data interface{}) (string, error) {

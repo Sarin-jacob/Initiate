@@ -106,3 +106,36 @@ func HandleUpdateUserExpiration(database *gorm.DB) http.HandlerFunc {
 	}
 }
 
+func HandleForceRemoveUser(database *gorm.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID := chi.URLParam(r, "id")
+
+		tx := database.Begin()
+		
+		// 1. Remove associated user access rows
+		if err := tx.Where("user_id = ?", userID).Delete(&db.UserAccess{}).Error; err != nil {
+			tx.Rollback()
+			http.Error(w, "Failed to remove user access records", http.StatusInternalServerError)
+			return
+		}
+
+		// 2. Remove associated invitations
+		if err := tx.Where("user_id = ?", userID).Delete(&db.Invitation{}).Error; err != nil {
+			tx.Rollback()
+			http.Error(w, "Failed to remove user invitations", http.StatusInternalServerError)
+			return
+		}
+
+		// 3. Delete the user record itself
+		if err := tx.Where("id = ?", userID).Delete(&db.User{}).Error; err != nil {
+			tx.Rollback()
+			http.Error(w, "Failed to delete user record", http.StatusInternalServerError)
+			return
+		}
+
+		tx.Commit()
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": "User forcefully purged from database."})
+	}
+}
