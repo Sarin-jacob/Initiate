@@ -1,8 +1,8 @@
 <script>
     import { onMount } from 'svelte';
-    import InviteForm from '../components/users/InviteForm.svelte';
     import UserTable from '../components/users/UserTable.svelte';
     import ActionModals from '../components/users/ActionModals.svelte';
+    import ProvisionModal from '../components/users/ProvisionModal.svelte'
     
     let users = [];
     let servers = [];
@@ -48,31 +48,30 @@
     }
 </script>
 
-<div class="space-y-8">
-    <div>
-        <h1 class="text-4xl font-bold">Users & Access</h1>
-        <p class="text-base-content/70 mt-2 text-lg">Manage identities, search profiles, and orchestrate lifecycle pipelines.</p>
+<div class="container mx-auto p-4 md:p-8 max-w-7xl">
+    
+    <!-- Top Action Bar -->
+    <div class="flex justify-between items-center mb-8">
+        <div>
+            <h1 class="text-3xl font-bold">User Management</h1>
+            <p class="text-sm opacity-60">Manage identities, access pipelines, and edge deployments.</p>
+        </div>
+        
+        <!-- Trigger Button for the new Modal -->
+        <button 
+            class="btn btn-primary shadow-sm"
+            on:click={() => document.getElementById('provisionModal').showModal()}
+        >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM4 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 10.374 21c-2.331 0-4.512-.645-6.374-1.766Z" /></svg>
+            Provision Access
+        </button>
     </div>
 
-    <!-- The Provisioning UI Component -->
-    <InviteForm 
-        {servers} 
-        {macros} 
-        {pages} 
-        on:refresh={fetchData} 
-    />
+    <!-- The Data Table -->
+    <UserTable {users} {giteaUrl} on:action={handleAction} on:refresh={fetchData} />
 
-    <!-- The Data Table Component (with Avatars and Filters) -->
-    <UserTable 
-        {users} 
-        {giteaUrl} 
-        on:action={handleAction} 
-    />
+    <!-- The Isolated Component -->
+    <ProvisionModal {servers} {pages} on:success={fetchData} />
+
 </div>
-
-<!-- The Modals Container -->
-<ActionModals 
-    bind:this={modalsRef} 
-    {macros} 
-    on:refresh={fetchData} 
-/>
+<ActionModals bind:this={modalsRef} {macros} on:refresh={fetchData}/>
