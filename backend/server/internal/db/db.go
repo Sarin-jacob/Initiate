@@ -121,7 +121,7 @@ func seedDefaultPages(db *gorm.DB) {
 			ID:      "page-email",
 			Slug:    "default-email",
 			Title:   "Default Invite Email",
-			Content: "Hello {{.Username}},\n\nYou have been invited to the infrastructure portal. Click the link below to configure your access:\n\n{{.InviteURL}}\n\n*This link expires in 48 hours.*",
+			Content: "Hello {{.Username}},\n\nYou have been invited to the infrastructure portal. Click the link below to configure your access:\n\n[Start Onboarding]({{.InviteURL}})\n\n*This link expires in 48 hours.*",
 		},
 		{
 			ID:      "page-welcome",

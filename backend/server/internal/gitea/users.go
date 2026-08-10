@@ -3,6 +3,7 @@ package gitea
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 )
 
@@ -23,7 +24,8 @@ func (c *Client) CreateUser(ctx context.Context, username, email, password strin
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("expected status 201 Created, got %d", resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Gitea API Error (%d): %s", resp.StatusCode, string(bodyBytes))
 	}
 	return nil
 }
@@ -79,8 +81,8 @@ func (c *Client) SetPassword(ctx context.Context, username, password string, mus
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("expected status 200 OK on set password, got %d", resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Gitea API Error (%d): %s", resp.StatusCode, string(bodyBytes))
 	}
-
 	return nil
 }

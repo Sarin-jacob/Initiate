@@ -125,19 +125,27 @@
                                 </button>
                             {/if}
                             
-                            <!-- DAISYUI NATIVE DROPDOWN -->
-                            <div class="dropdown dropdown-end dropdown-bottom">
-                                <div tabindex="0" role="button" class="btn btn-ghost btn-sm btn-circle">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 12.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 18.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z" /></svg>
-                                </div>
-                                <ul tabindex="0" class="dropdown-content z-50 menu p-2 shadow-2xl bg-base-100 rounded-box w-56 border border-base-300 text-left mt-1">
-                                    <li class="menu-title px-4 py-2">Manage {user.Username}</li>
-                                    <li><button type="button" on:click={() => triggerAction('expiry', user)}>Extend Expiration</button></li>
-                                    <li><button type="button" on:click={() => triggerAction('macro', user)}>Apply Manual Macro</button></li>
-                                    <div class="divider my-1"></div>
-                                    <li><button type="button" class="text-error font-bold" on:click={() => triggerAction('deprovision', user)}>Deprovision User</button></li>
-                                </ul>
-                            </div>
+                            <!-- DAISYUI POPOVER DROPDOWN -->
+                            <button 
+                                class="btn btn-ghost btn-sm btn-circle" 
+                                popovertarget="menu-{user.ID}" 
+                                style="anchor-name: --anchor-{user.ID}"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 12.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 18.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z" /></svg>
+                            </button>
+
+                            <ul 
+                                class="dropdown menu w-56 rounded-box bg-base-100 shadow-xl border border-base-300 text-left mt-2"
+                                popover 
+                                id="menu-{user.ID}" 
+                                style="position-anchor: --anchor-{user.ID}"
+                            >
+                                <li class="menu-title px-4 py-2">Manage {user.Username}</li>
+                                <li><button type="button" on:click={() => triggerAction('expiry', user)}>Extend Expiration</button></li>
+                                <li><button type="button" on:click={() => triggerAction('macro', user)}>Apply Manual Macro</button></li>
+                                <div class="divider my-1"></div>
+                                <li><button type="button" class="text-error font-bold" on:click={() => triggerAction('deprovision', user)}>Deprovision User</button></li>
+                            </ul>
                         </td>
                     </tr>
                 {:else}
