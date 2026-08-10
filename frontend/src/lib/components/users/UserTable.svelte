@@ -56,6 +56,41 @@
         if (user.Status === 'DEPROVISION_FAILED') return true;
         return user.access_list && user.access_list.some(a => a.Status === 'FAILED');
     }
+
+    async function forceRemoveUser(user) {
+        if (!confirm(`Are you sure you want to FORCE REMOVE ${user.Username}? This deletes the database record entirely.`)) {
+            return;
+        }
+
+        // Close the popover menu
+        if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+        }
+
+        try {
+            const res = await fetch(`/api/admin/users/${user.ID}/force`, {
+                method: 'DELETE',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + localStorage.getItem('nexus_jwt') 
+                }
+            });
+
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.message || "Failed to purge user");
+            }
+
+            // Immediately remove the user from the local array to update the UI instantly
+            users = users.filter(u => u.ID !== user.ID);
+            
+            // Dispatch an optional refresh just in case the parent wants to update stats
+            dispatch('refresh'); 
+
+        } catch (err) {
+            alert("Error: " + err.message);
+        }
+    }
 </script>
 
 <!-- LOG VIEWER MODAL -->
@@ -158,7 +193,8 @@
                                 <li><button type="button" on:click={() => triggerAction('expiry', user)}>Extend Expiration</button></li>
                                 <li><button type="button" on:click={() => triggerAction('macro', user)}>Apply Manual Macro</button></li>
                                 <div class="divider my-1"></div>
-                                <li><button type="button" class="text-error font-bold" on:click={() => triggerAction('deprovision', user)}>Deprovision User</button></li>
+                                <li><button type="button" class="text-warning font-bold" on:click={() => triggerAction('deprovision', user)}>Deprovision User</button></li>
+                                <li><button type="button" class="text-error font-bold" on:click={() => forceRemoveUser(user)}>Force Remove (DB)</button></li>
                             </ul>
                         </td>
                     </tr>

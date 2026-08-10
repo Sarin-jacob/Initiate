@@ -51,6 +51,7 @@ func NewRouter(
         r.Put("/users/{id}/expire", HandleUpdateUserExpiration(database))
         r.Post("/users/{id}/macro", HandleApplyMacro(database, hub))
         r.Post("/users/{id}/deprovision", HandleDeprovisionUser(database, hub))
+        r.Delete("/users/{id}/force", HandleForceRemoveUser(database))
 
         r.Get("/macros", HandleGetMacros(database))
         r.Post("/macros", HandleCreateMacro(database))
