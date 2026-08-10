@@ -1,9 +1,8 @@
 <script>
     import { onMount } from 'svelte';
-    // import InviteForm from '../components/users/InviteForm.svelte';
     import UserTable from '../components/users/UserTable.svelte';
     import ActionModals from '../components/users/ActionModals.svelte';
-    import ProvisionModal from './ProvisionModal.svelte'
+    import ProvisionModal from '../components/users/ProvisionModal.svelte'
     
     let users = [];
     let servers = [];
