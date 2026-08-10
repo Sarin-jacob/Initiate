@@ -111,16 +111,30 @@ func (h *Hub) handleVirtualGiteaTask(taskID string, event string, payload map[st
 	
 	var err error
 	switch event {
-	case "gitea_user:create":
+	case "gitea:create_user":
 		email, _ := payload["email"].(string) 
 		password, _ := payload["password"].(string)
-		err = h.gitea.CreateUser(context.Background(), username, email, password)
+		askChangeStr, _ := payload["ask_password_change"].(string)
+		askChange := askChangeStr == "true" || askChangeStr == "1"
+		
+		err = h.gitea.CreateUser(context.Background(), username, email, password, askChange)
+
+	case "gitea:set_password": // NEW!
+		password, _ := payload["password"].(string)
+		askChangeStr, _ := payload["ask_password_change"].(string)
+		askChange := askChangeStr == "true" || askChangeStr == "1"
+
+		err = h.gitea.SetPassword(context.Background(), username, password, askChange)
 	
-	case "gitea_user:delete":
-		purgeRepos, _ := payload["purge_repos"].(bool)
-		err = h.gitea.DeleteUser(context.Background(), username, purgeRepos)
+	case "gitea:delete_user":
+		purgeStr, _ := payload["purge_repos"].(string)
+		purge := purgeStr == "true" || purgeStr == "1"
+		
+		err = h.gitea.DeleteUser(context.Background(), username, purge)
 	
-	// Add cases for suspend/resume later as needed
+	case "gitea:disable_user":
+		err = h.gitea.DisableUser(context.Background(), username)
+
 	default:
 		return TaskResult{TaskID: taskID, Status: "FAILED", Output: "Unknown Gitea action: " + event}
 	}
