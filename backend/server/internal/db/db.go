@@ -52,6 +52,7 @@ type UserAccess struct {
 	TargetType     string `gorm:"not null"` // "GITEA" or "SERVER"
 	TargetID       string `gorm:"not null"` // Gitea identifier or Edge Server UUID
 	Status         string `gorm:"default:'PENDING'"`
+	ExecutionLog   string `gorm:"type:text"`
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }

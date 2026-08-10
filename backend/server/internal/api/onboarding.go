@@ -96,29 +96,39 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 			var steps []MacroStep
 			json.Unmarshal([]byte(macro.Steps), &steps)
 
+			var executionTrace string
 			pipelineSuccess := true
 			for _, step := range steps {
 				event := fmt.Sprintf("%s:%s", step.Module, step.Action)
-				log.Printf("Executing %s on target %s...", event, target.ID)
+				executionTrace += fmt.Sprintf("[PENDING] %s...\n", event)
 
-				// THE MAGIC HAPPENS HERE: Resolve specific parameters for this exact step
 				resolvedPayload := resolveStepParams(step.Params, payload)
-
-				// Dispatch using the perfectly sculpted resolvedPayload
 				res, err := hub.DispatchTaskSync(target.ID, event, resolvedPayload, 30*time.Second)
 				
-				if err != nil || res.Status == "FAILED" {
-					log.Printf("Pipeline aborted on %s: Step '%s' failed. Error: %s", target.ID, event, res.Output)
+				if err != nil {
 					pipelineSuccess = false
+					executionTrace += fmt.Sprintf("[ERROR] Network/Timeout: %v\n", err)
 					break
 				}
+				
+				if res.Status == "FAILED" {
+					pipelineSuccess = false
+					executionTrace += fmt.Sprintf("[FAILED] Edge output:\n%s\n", res.Output)
+					break
+				}
+				
+				executionTrace += fmt.Sprintf("[SUCCESS] Edge output:\n%s\n", res.Output)
 			}
 
-			if pipelineSuccess {
-				database.Model(&access).Update("status", "ACTIVE")
-			} else {
-				database.Model(&access).Update("status", "FAILED")
+			// Save the trace and status
+			updates := map[string]interface{}{
+				"status": "ACTIVE",
+				"execution_log": executionTrace,
 			}
+			if !pipelineSuccess {
+				updates["status"] = "FAILED"
+			}
+			database.Model(&access).Updates(updates)
 		}
 
 		// 4. Finalize Onboarding
