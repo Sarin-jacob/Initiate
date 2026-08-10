@@ -119,7 +119,10 @@
         <div class="card-body p-4 flex flex-col">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="card-title text-lg">Documents</h2>
-                <button class="btn btn-sm btn-circle btn-ghost bg-base-200" on:click={createNewPage} title="New Page">+</button>
+                <button class="btn btn-sm btn-primary text-base-content btn-ghost bg-base-200" on:click={createNewPage} title="New Page">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-plus-icon lucide-file-plus"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M9 15h6"/><path d="M12 18v-6"/></svg>
+                    New
+                </button>
             </div>
             
             <ul class="menu bg-base-200/50 rounded-box w-full flex-1 overflow-y-auto">
