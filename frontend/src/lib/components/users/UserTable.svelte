@@ -39,8 +39,22 @@
 
     function openLogs(user) {
         selectedLogUser = user.Username;
-        selectedLog = user.ExecutionLog || "No execution logs available for this user.";
+        
+        if (user.access_list && user.access_list.length > 0) {
+            selectedLog = user.access_list.map(a => {
+                const statusStr = a.Status === 'FAILED' ? '[❌ FAILED]' : '[✅ SUCCESS]';
+                const logData = a.ExecutionLog || "No logs recorded.";
+                return `=== TARGET: ${a.TargetID} ${statusStr} ===\n${logData}`;
+            }).join('\n\n');
+        } else {
+            selectedLog = "No access records found for this user.";
+        }
+        
         isLogModalOpen = true;
+    }
+    function hasFailedAccess(user) {
+        if (user.Status === 'DEPROVISION_FAILED') return true;
+        return user.access_list && user.access_list.some(a => a.Status === 'FAILED');
     }
 </script>
 
@@ -94,7 +108,7 @@
                             </div>
                         </td>
                         <td>
-                            {#if user.Status === 'DEPROVISION_FAILED' || user.Status === 'FAILED'}
+                            {#if hasFailedAccess(user)}
                                 <span class="badge badge-error p-3 cursor-pointer hover:bg-error-focus" on:click={() => openLogs(user)}>View Fail Log</span>
                             {:else if user.Status === 'ACTIVE'}
                                 <span class="badge badge-success p-3">Active</span>
