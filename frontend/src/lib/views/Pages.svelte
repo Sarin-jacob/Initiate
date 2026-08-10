@@ -135,7 +135,10 @@
                                     <span class="badge badge-primary badge-xs mt-1 py-1">Onboarding Default</span>
                                 {/if}
                                 {#if settings.default_email_slug === page.Slug}
-                                    <span class="badge badge-secondary badge-xs mt-1 py-1">Email Default</span>
+                                    <span class="badge badge-secondary badge-xs mt-1 py-1">Invite Default</span>
+                                {/if}
+                                {#if settings.welcome_email_slug === page.Slug}
+                                    <span class="badge badge-accent badge-xs mt-1 py-1">Welcome Default</span>
                                 {/if}
                             </div>
                         </button>

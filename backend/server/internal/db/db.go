@@ -120,8 +120,14 @@ func seedDefaultPages(db *gorm.DB) {
 		{
 			ID:      "page-email",
 			Slug:    "default-email",
-			Title:   "Default Welcome Email",
+			Title:   "Default Invite Email",
 			Content: "Hello {{.Username}},\n\nYou have been invited to the infrastructure portal. Click the link below to configure your access:\n\n{{.InviteURL}}\n\n*This link expires in 48 hours.*",
+		},
+		{
+			ID:      "page-welcome",
+			Slug:    "default-welcome",
+			Title:   "Default Welcome Email",
+			Content: "## Welcome aboard, {{.Username}}!\n\nYour systems are fully provisioned.\n\n[Go to Dashboard]({{.SystemURL}})",
 		},
 		{
 			ID:      "page-guide",
@@ -142,6 +148,7 @@ func seedDefaultSettings(db *gorm.DB) {
 		{Key: "theme", Value: "corporate"},
 		{Key: "default_invite_slug", Value: "default-onboarding"},
 		{Key: "default_email_slug", Value: "default-email"}, // NEW
+		{Key: "welcome_email_slug", Value: "default-welcome"}, // NEW
 		{Key: "user_expire_days", Value: "0"},
 		{Key: "gitea_url", Value: ""},
 	}
@@ -153,7 +160,7 @@ func seedDefaultSettings(db *gorm.DB) {
 // seedVirtualAgents ensures internal systems are registered as targets with their capabilities
 func seedVirtualAgents(db *gorm.DB) {
 	// Gitea's internal capabilities manifest
-	capabilities := `{"gitea_user":["create","delete","suspend"]}`
+	capabilities := `{"gitea":{"create_user":{"username":"string","email":"string","password":"secret"},"set_password":{"username":"string","password":"secret"},"delete_user":{"username":"string"}}}`
 	
 	var agent TargetServer
 	if err := db.Where("id = ?", "internal-gitea").First(&agent).Error; err != nil {
