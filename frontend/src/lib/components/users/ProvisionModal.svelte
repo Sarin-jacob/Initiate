@@ -150,16 +150,20 @@
 </script>
 
 <dialog id="provisionModal" class="modal modal-bottom sm:modal-middle" on:close={resetForm}>
-    <div class="modal-box w-11/12 max-w-4xl bg-base-100 p-0 overflow-hidden">
+    <!-- ADDED: flex flex-col max-h-[90vh] to control the height perfectly -->
+    <div class="modal-box w-11/12 max-w-4xl bg-base-100 p-0 overflow-hidden flex flex-col max-h-[90vh]">
         
-        <!-- Header -->
-        <div class="bg-base-200/50 p-6 border-b border-base-200">
+        <!-- HEADER (Fixed at Top) -->
+        <div class="bg-base-200/50 p-6 border-b border-base-200 flex-shrink-0">
             <h3 class="font-bold text-xl text-base-content">Provision Access</h3>
             <p class="text-sm opacity-60">Deploy automated pipelines for new users.</p>
         </div>
 
-        <div class="p-6">
-            <form on:submit={handleSubmit} class="space-y-8">
+        <!-- FORM CONTAINER (Flex to hold body and footer) -->
+        <form on:submit={handleSubmit} class="flex flex-col flex-1 overflow-hidden">
+            
+            <!-- BODY (Scrollable Middle Section) -->
+            <div class="p-6 overflow-y-auto flex-1 space-y-8">
                 
                 {#if alertMsg}
                     <div class="alert alert-error shadow-sm text-sm py-2">{alertMsg}</div>
@@ -187,7 +191,8 @@
                             </div>
                         </div>
                     {:else}
-                        <div class="space-y-3 bg-base-200/30 p-4 rounded-xl border border-base-200 max-h-64 overflow-y-auto">
+                        <!-- Removed fixed height here so it flows nicely in the parent scroll container -->
+                        <div class="space-y-3 bg-base-200/30 p-4 rounded-xl border border-base-200">
                             {#each bulkUsers as user, i}
                                 <div class="flex items-center gap-2">
                                     <input type="text" bind:value={user.username} placeholder="Username" required class="input input-sm input-bordered w-full font-mono" />
@@ -277,17 +282,17 @@
                         {/each}
                     </div>
                 {/if}
+            </div>
 
-                <!-- Footer -->
-                <div class="modal-action border-t border-base-200 pt-6">
-                    <button type="button" class="btn btn-ghost" on:click={() => document.getElementById('provisionModal').close()}>Cancel</button>
-                    <button type="submit" class="btn btn-primary px-8" disabled={isInviting}>
-                        {#if isInviting} <span class="loading loading-spinner"></span> {/if}
-                        Deploy {isBulk ? 'Bulk' : ''} Access
-                    </button>
-                </div>
-            </form>
-        </div>
+            <!-- FOOTER (Fixed at Bottom) -->
+            <div class="bg-base-100 p-6 border-t border-base-200 flex justify-end gap-3 flex-shrink-0 z-10">
+                <button type="button" class="btn btn-ghost" on:click={() => document.getElementById('provisionModal').close()}>Cancel</button>
+                <button type="submit" class="btn btn-primary px-8" disabled={isInviting}>
+                    {#if isInviting} <span class="loading loading-spinner"></span> {/if}
+                    Deploy {isBulk ? 'Bulk' : ''} Access
+                </button>
+            </div>
+        </form>
     </div>
     <form method="dialog" class="modal-backdrop"><button>close</button></form>
 </dialog>
