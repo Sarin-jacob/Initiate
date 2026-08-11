@@ -29,9 +29,10 @@ type TargetServer struct {
 	PublicKey    			string    `gorm:"uniqueIndex;not null"`
 	Status       			string    `gorm:"default:'OFFLINE'"`
 	Capabilities 			string    `gorm:"type:text"`
-	ProvisionMacroID       	string `gorm:"type:uuid"`
-	SoftDeprovisionMacroID 	string `gorm:"type:uuid"`
-	HardDeprovisionMacroID 	string `gorm:"type:uuid"`
+	ProvisionMacroID       	string 	  `gorm:"type:uuid"`
+	SoftDeprovisionMacroID 	string 	  `gorm:"type:uuid"`
+	HardDeprovisionMacroID 	string    `gorm:"type:uuid"`
+	LastSeen       			time.Time `json:"last_seen"`
 	CreatedAt    			time.Time
 	UpdatedAt    			time.Time
 }
