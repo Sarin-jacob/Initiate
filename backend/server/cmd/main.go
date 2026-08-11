@@ -19,7 +19,7 @@ func main() {
 
     // 1. Initialize SQLite Database
     config.Load()
-    database := db.InitDB("nexus.db")
+    database := db.InitDB("nexusauth.db")
 
     
     giteaClient := gitea.NewClient(
