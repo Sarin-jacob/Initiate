@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/Sarin-jacob/Initiate/internal/config"
 	"github.com/Sarin-jacob/Initiate/internal/crypto"
 	"github.com/Sarin-jacob/Initiate/internal/db"
 	"github.com/Sarin-jacob/Initiate/internal/mailer"
@@ -73,8 +73,8 @@ func HandleGetInviteData(database *gorm.DB) http.HandlerFunc {
 		templateData := markdown.OnboardingTemplateData{
 			Username:  user.Username,
 			Email:     user.Email,
-			GiteaURL:  os.Getenv("GITEA_EXTERNAL_URL"),
-			SystemURL: os.Getenv("BASE_URL"),
+			GiteaURL:  config.App.GiteaExternalURL,
+			SystemURL: config.App.BaseURL,
 			Token:     rawToken,
 		}
 

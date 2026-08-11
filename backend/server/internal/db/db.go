@@ -127,7 +127,7 @@ func seedDefaultPages(db *gorm.DB) {
 			ID:      "page-welcome",
 			Slug:    "default-welcome",
 			Title:   "Default Welcome Email",
-			Content: "## Welcome aboard, {{.Username}}!\n\nYour systems are fully provisioned.\n\n[Go to Dashboard]({{.SystemURL}})",
+			Content: "## Welcome aboard, {{.Username}}!\n\nYour systems are fully provisioned.\n\n[Go to Dashboard]({{.GiteaURL}})",
 		},
 		{
 			ID:      "page-guide",

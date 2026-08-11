@@ -3,15 +3,15 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"time"
 
+	"github.com/Sarin-jacob/Initiate/internal/config"
 	"github.com/golang-jwt/jwt/v5"
 )
 
 // JWTSecret should be set in ENV. Fallback for development.
 func getJWTSecret() []byte {
-	secret := os.Getenv("JWT_SECRET")
+	secret := config.App.JWTSecret
 	if secret == "" {
 		return []byte("nexus-super-secret-dev-key")
 	}
@@ -30,7 +30,7 @@ func HandleAdminLogin() http.HandlerFunc {
 			return
 		}
 
-		adminPass := os.Getenv("ADMIN_PASSWORD")
+		adminPass := config.App.AdminPassword
 		if adminPass == "" {
 			http.Error(w, "InvalidConfig: No Password Set", http.StatusInternalServerError)
 			return // Fallback for local testing

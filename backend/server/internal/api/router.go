@@ -3,12 +3,14 @@ package api
 import (
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"gorm.io/gorm"
 
 	"github.com/Sarin-jacob/Initiate/internal/agenthub"
+	"github.com/Sarin-jacob/Initiate/internal/config"
 	"github.com/Sarin-jacob/Initiate/internal/gitea"
 	"github.com/Sarin-jacob/Initiate/internal/mailer"
 )
@@ -84,17 +86,24 @@ func NewRouter(
 	})
 
     // --- 4. Frontend SPA Serve (Catch-all) ---
-    fs := http.FileServer(http.Dir("./static"))
+   staticFolder := config.App.StaticFolder
+	
+	fs := http.FileServer(http.Dir(staticFolder))
 	
 	// Catch-all route to support client-side routing (e.g. /invite?token=...)
 	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
+		// Use filepath.Join to safely construct the path
+		targetPath := filepath.Join(staticFolder, r.URL.Path)
+		
 		// If requesting a specific file that exists, serve it
-		if _, err := os.Stat("./static" + r.URL.Path); err == nil {
+		if stat, err := os.Stat(targetPath); err == nil && !stat.IsDir() {
 			fs.ServeHTTP(w, r)
 			return
 		}
+		
 		// Otherwise, fallback to serving index.html (SPA routing behavior)
-		http.ServeFile(w, r, "./static/index.html")
+		indexPath := filepath.Join(staticFolder, "index.html")
+		http.ServeFile(w, r, indexPath)
 	})
 
     return r

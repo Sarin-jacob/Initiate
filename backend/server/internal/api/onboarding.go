@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Sarin-jacob/Initiate/internal/agenthub"
+	"github.com/Sarin-jacob/Initiate/internal/config"
 	"github.com/Sarin-jacob/Initiate/internal/db"
 	"github.com/Sarin-jacob/Initiate/internal/gitea"
 	"github.com/Sarin-jacob/Initiate/internal/mailer"
@@ -148,14 +148,14 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 		tx.Commit()
 
 		go func() {
-			loginURL := os.Getenv("BASE_URL")
+			loginURL := config.App.GiteaExternalURL
 			
 			// 1. Fetch configured Welcome Email CMS page
 			var welcomeSlug db.SystemSetting
 			database.Where("key = ?", "welcome_email_slug").First(&welcomeSlug)
 
 			subject := "Your Access is Provisioned!"
-			bodyMD := "## Welcome aboard, {{.Username}}!\n\nYour systems are fully provisioned.\n\n[Go to Dashboard]({{.SystemURL}})"
+			bodyMD := "## Welcome aboard, {{.Username}}!\n\nYour systems are fully provisioned.\n\n[Go to Dashboard]({{.GiteaURL}})"
 
 			var welcomePage db.Page
 			if welcomeSlug.Value != "" && database.Where("slug = ?", welcomeSlug.Value).First(&welcomePage).Error == nil {
@@ -167,7 +167,7 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 			emailData := markdown.OnboardingTemplateData{
 				Username:  user.Username,
 				Email:     user.Email,
-				SystemURL: loginURL, // Mapped so {{.SystemURL}} works in the markdown
+				GiteaURL: loginURL, // Mapped so {{.GiteaURL}} works in the markdown
 			}
 			
 			renderedHTML, err := markdown.RenderGFM(bodyMD, emailData)
@@ -192,7 +192,7 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 						for _, slug := range slugs {
 							var doc db.Page
 							if err := database.First(&doc, "slug = ?", slug).Error; err == nil {
-								docURL := fmt.Sprintf("%s/?docs=%s", os.Getenv("BASE_URL"), doc.Slug)
+								docURL := fmt.Sprintf("%s/?docs=%s", config.App.BaseURL, doc.Slug)
 								renderedHTML += fmt.Sprintf(`<a href="%s" style="border: 2px solid #e4e4e7; color: #3f3f46; padding: 8px 16px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin: 0 10px 10px 0;">%s</a>`, docURL, doc.Title)
 							}
 						}
