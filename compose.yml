@@ -47,9 +47,8 @@ services:
 
 volumes:
   nexus_data:
-    name: nexus_persistent_data
 
 networks:
   nexus_net:
-    name: nexus_network
     driver: bridge
+    attachable: true
