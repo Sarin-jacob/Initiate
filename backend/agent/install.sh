@@ -12,15 +12,7 @@ sudo cp nexusauth-agent /opt/nexusauth/
 sudo cp config.yml /opt/nexusauth/
 sudo chmod +x /opt/nexusauth/nexusauth-agent
 
-# 3. Generate key if it doesn't exist
-if [ ! -f /etc/nexusauth/agent.key ]; then
-    echo "Generating new Ed25519 key..."
-    # Note: Requires your keygen logic compiled to a binary, or just run it via go run if Go is installed
-    cd /opt/nexusauth && go run /path/to/your/keygen.go
-    sudo mv agent.key /etc/nexusauth/
-fi
-
-# 4. Create Systemd Service File
+# 3. Create Systemd Service File
 cat <<EOF | sudo tee /etc/systemd/system/nexusauth-agent.service
 [Unit]
 Description=NexusAuth Target Provisioning Agent
@@ -41,7 +33,7 @@ NoNewPrivileges=yes
 WantedBy=multi-user.target
 EOF
 
-# 5. Enable and start
+# 4. Enable and start
 sudo systemctl daemon-reload
 sudo systemctl enable nexusauth-agent
 sudo systemctl restart nexusauth-agent
