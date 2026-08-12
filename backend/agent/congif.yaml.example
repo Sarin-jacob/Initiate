@@ -91,7 +91,11 @@ modules:
       command: "/usr/bin/bash"
       args:
         - "-c"
-        - "sudo -u {{.username}} sh -c 'cd /home/{{.username}} && uv init --bare'"
+        - |
+          su - {{.username}} -s /bin/bash << 'EOF'
+          set -e
+          uv init
+          EOF
 
   # ---------------------------------------------------------
   # Module: system_group
