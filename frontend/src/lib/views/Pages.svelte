@@ -18,7 +18,7 @@
     let isSaving = false;
     let isDeleting = false;
 
-    const cheatSheet = ['{{.Username}}', '{{.Email}}', '{{.GiteaURL}}', '{{.Token}}', '{{.InviteURL}}'];
+    const cheatSheet = ['{{.Username}}', '{{.Email}}', '{{.GiteaURL}}', '{{.Token}}', '{{.InviteURL}}', '{{.SystemURL}}'];
     const getHeaders = () => ({ 
             'Content-Type': 'application/json', 
             'Authorization': 'Bearer ' + localStorage.getItem('nexus_jwt') 
