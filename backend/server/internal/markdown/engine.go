@@ -50,6 +50,9 @@ func RenderGFM(rawMarkdown string, data interface{}) (string, error) {
 	// ... But we strictly sanitize it here. 
 	// UGCPolicy allows standard styling and links, but strips <script>, <style>, and on-click handlers.
 	policy := bluemonday.UGCPolicy()
+	policy.AllowAttrs("class").Globally()
+	policy.AllowAttrs("style").Globally()
+	policy.AllowAttrs("target").OnElements("a")
 	safeHTML := policy.SanitizeBytes(htmlBuffer.Bytes())
 
 	return string(safeHTML), nil
