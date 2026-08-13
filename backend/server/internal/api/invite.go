@@ -223,32 +223,54 @@ func HandleGetAdminVars(database *gorm.DB) http.HandlerFunc {
 		var req InspectAdminVarsRequest
 		json.NewDecoder(r.Body).Decode(&req)
 
-		varSet := make(map[string]bool)
+		// varSet maps the admin variable name to its type (e.g., "admin_pass" -> "secret")
+		varSet := make(map[string]string)
+
 		for _, tid := range req.TargetIDs {
 			var srv db.TargetServer
 			if err := database.First(&srv, "id = ?", tid).Error; err == nil && srv.ProvisionMacroID != "" {
 				var mac db.Macro
 				if err := database.First(&mac, "id = ?", srv.ProvisionMacroID).Error; err == nil {
-					matches := adminVarRegex.FindAllStringSubmatch(mac.Steps, -1)
-					for _, m := range matches {
-						if len(m) > 1 {
-							varSet[m[1]] = true // Store unique admin var names
+					
+					var steps []MacroStep
+					json.Unmarshal([]byte(mac.Steps), &steps)
+
+					var caps map[string]map[string]map[string]string
+					json.Unmarshal([]byte(srv.Capabilities), &caps)
+
+					for _, step := range steps {
+						for paramKey, paramVal := range step.Params {
+							matches := adminVarRegex.FindStringSubmatch(paramVal)
+							if len(matches) > 1 {
+								varName := matches[1]
+								varType := "string"
+
+								// Look up exact type from the Agent's reported Capabilities
+								if modCaps, ok := caps[step.Module]; ok {
+									if actCaps, ok := modCaps[step.Action]; ok {
+										if t, ok := actCaps[paramKey]; ok {
+											varType = t
+										}
+									}
+								}
+
+								// Prevent downgrading a strict type to a generic one
+								if existing, exists := varSet[varName]; exists {
+									if existing == "secret" || existing == "textarea" {
+										continue
+									}
+								}
+								varSet[varName] = varType
+							}
 						}
 					}
 				}
 			}
 		}
 
-		var reqVars []string
-		for k := range varSet {
-			reqVars = append(reqVars, k)
-		}
-		if reqVars == nil {
-			reqVars = []string{}
-		}
-
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"admin_vars": reqVars})
+		// Output looks like: {"admin_vars": {"db_password": "secret", "install_deps": "bool"}}
+		json.NewEncoder(w).Encode(map[string]interface{}{"admin_vars": varSet})
 	}
 }
 
