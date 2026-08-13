@@ -107,20 +107,21 @@ func HandleGetPageBySlug(database *gorm.DB) http.HandlerFunc {
 
 // sanitizeTemplate prevents Go's text/template from crashing on unknown variables
 func sanitizeTemplate(content string, isPreview bool) string {
+	inviteurl := fmt.Sprintf("%s/invite?token=preview-token-xyz",config.App.BaseURL)
 	// 1. Swap known variables with mock data or placeholders
 	if isPreview {
 		content = strings.ReplaceAll(content, "{{.Username}}", "JaneDoe")
 		content = strings.ReplaceAll(content, "{{.Email}}", "jane.doe@company.com")
-		content = strings.ReplaceAll(content, "{{.GiteaURL}}", "https://gitea.example.com")
-		content = strings.ReplaceAll(content, "{{.SystemURL}}", "https://nexus.example.com")
+		content = strings.ReplaceAll(content, "{{.GiteaURL}}", config.App.GiteaExternalURL)
+		content = strings.ReplaceAll(content, "{{.SystemURL}}", config.App.BaseURL)
 		content = strings.ReplaceAll(content, "{{.Token}}", "preview-token-xyz")
-		content = strings.ReplaceAll(content, "{{.InviteURL}}", "https://nexus.example.com/invite?token=preview")
+		content = strings.ReplaceAll(content, "{{.InviteURL}}", inviteurl)
 	} else {
 		// Public Docs don't have user context, so we show placeholders
 		content = strings.ReplaceAll(content, "{{.Username}}", "[Your Username]")
 		content = strings.ReplaceAll(content, "{{.Email}}", "[Your Email]")
-		content = strings.ReplaceAll(content, "{{.GiteaURL}}", "[Gitea URL]")
-		content = strings.ReplaceAll(content, "{{.SystemURL}}", "[System URL]")
+		content = strings.ReplaceAll(content, "{{.GiteaURL}}", config.App.GiteaExternalURL)
+		content = strings.ReplaceAll(content, "{{.SystemURL}}", config.App.BaseURL)
 	}
 
 	// 2. Escape any remaining {{ }} so the Go template engine treats them as literal strings
