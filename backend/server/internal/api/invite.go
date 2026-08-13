@@ -260,7 +260,7 @@ func getRequiredUserVars(database *gorm.DB, userID string) []string {
 	varSet := make(map[string]bool)
 
 	for _, acc := range accesses {
-		if acc.TargetType == "SERVER" {
+		// if acc.TargetType == "SERVER" {
 			var srv db.TargetServer
 			// Find the server and its attached macro
 			if err := database.First(&srv, "id = ?", acc.TargetID).Error; err == nil && srv.ProvisionMacroID != "" {
@@ -275,7 +275,7 @@ func getRequiredUserVars(database *gorm.DB, userID string) []string {
 					}
 				}
 			}
-		}
+		// }
 	}
 
 	var reqVars []string
