@@ -168,6 +168,7 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 				Username:  user.Username,
 				Email:     user.Email,
 				GiteaURL: loginURL, // Mapped so {{.GiteaURL}} works in the markdown
+				SystemURL: config.App.BaseURL,
 			}
 			
 			renderedHTML, err := markdown.RenderGFM(bodyMD, emailData)
