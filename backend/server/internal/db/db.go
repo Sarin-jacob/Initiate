@@ -161,7 +161,7 @@ func seedDefaultSettings(db *gorm.DB) {
 // seedVirtualAgents ensures internal systems are registered as targets with their capabilities
 func seedVirtualAgents(db *gorm.DB) {
 	// Gitea's internal capabilities manifest
-	capabilities := `{"gitea":{"create_user":{"username":"string","email":"string","password":"secret","ask_password_change":"boolean"},"set_password":{"username":"string","password":"secret","ask_password_change":"boolean"},"delete_user":{"username":"string","purge_repos":"boolean"},"disable_user":{"username":"string"}}}`
+	capabilities := `{"gitea":{"create_user":{"username":"string","email":"string","password":"secret","ask_password_change":"bool"},"set_password":{"username":"string","password":"secret","ask_password_change":"bool"},"delete_user":{"username":"string","purge_repos":"bool"},"disable_user":{"username":"string"}}}`
 	
 	var agent TargetServer
 	if err := db.Where("id = ?", "internal-gitea").First(&agent).Error; err != nil {

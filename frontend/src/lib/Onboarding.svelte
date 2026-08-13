@@ -12,7 +12,7 @@
     let isSuccess = false;
 
     // NEW: Dynamic Form State
-    let requiredVars = [];
+    let requiredVars = {};
     let userInputs = {};
 
     // CMS / Multi-page State
@@ -183,7 +183,7 @@
                                 {:else if varType === 'textarea'}
                                     <textarea bind:value={userInputs[varName]} required rows="4" class="textarea textarea-bordered textarea-primary font-mono text-sm leading-relaxed"></textarea>
                                     
-                                {:else if varType === 'boolean'}
+                                {:else if varType === 'bool'}
                                     <select bind:value={userInputs[varName]} class="select select-bordered select-primary w-full" required>
                                         <option value="true">True</option>
                                         <option value="false">False</option>
