@@ -21,8 +21,7 @@
     let selectedDocs = [];
     
     // Macro State
-    let requiredAdminVars = [];
-    let adminInputs = {};
+    let adminFormFields = [];
     let isInspectingVars = false;
 
     // --- LOGIC ---
@@ -51,8 +50,7 @@
 
     async function updateAdminVars(targets) {
         if (!targets || targets.length === 0) {
-            requiredAdminVars = [];
-            adminInputs = {};
+            adminFormFields = [];
             return;
         }
 
@@ -68,12 +66,19 @@
             });
             const data = await res.json();
             
-            const oldInputs = { ...adminInputs };
-            adminInputs = {};
-            requiredAdminVars = data.admin_vars || [];
-            requiredAdminVars.forEach(v => {
-                adminInputs[v] = oldInputs[v] || '';
-            });
+            // Preserve old values so they don't wipe when a new server is checked
+            const oldValues = {};
+            adminFormFields.forEach(f => { oldValues[f.name] = f.value; });
+            
+            const vars = data.admin_vars || {};
+            
+            // Transform the dictionary into a safe array of objects
+            adminFormFields = Object.entries(vars).map(([name, type]) => ({
+                name,
+                type,
+                value: oldValues[name] || (type === 'bool' || type === 'boolean' ? 'false' : '')
+            }));
+            
         } catch (err) {
             console.error("Failed to inspect variables", err);
         } finally {
@@ -97,6 +102,10 @@
             alertMsg = "You must assign at least one Edge Server.";
             isInviting = false; return;
         }
+        const finalAdminInputs = {};
+        adminFormFields.forEach(f => {
+            finalAdminInputs[f.name] = f.value;
+        });
 
         for (const user of usersToProcess) {
             try {
@@ -106,7 +115,7 @@
                     expire_amount: parseInt(expireAmount) || 0,
                     expire_unit: expireUnit,
                     target_ids: selectedTargets,
-                    admin_context: JSON.stringify(adminInputs),
+                    admin_context: JSON.stringify(finalAdminInputs),
                     injected_docs: JSON.stringify(selectedDocs)
                 };
 
@@ -142,8 +151,7 @@
         bulkUsers = [{ username: '', email: '' }];
         selectedTargets = [];
         selectedDocs = [];
-        adminInputs = {};
-        requiredAdminVars = [];
+        adminFormFields = {};
         progressLog = [];
         alertMsg = "";
     }
@@ -241,13 +249,33 @@
 
                             {#if isInspectingVars}
                                 <div class="text-sm opacity-50 flex items-center gap-2"><span class="loading loading-spinner loading-xs"></span> Scanning pipelines...</div>
-                            {:else if requiredAdminVars.length > 0}
+                                
+                            {:else if adminFormFields.length > 0}
                                 <div class="bg-base-200 p-4 rounded-xl border border-base-300">
                                     <h5 class="text-xs font-bold uppercase tracking-wide mb-2 opacity-70">Required Variables</h5>
-                                    {#each requiredAdminVars as varName}
+                                    
+                                    {#each adminFormFields as field}
                                         <div class="form-control mb-2">
-                                            <label class="label py-1"><span class="label-text text-sm capitalize">{varName.replace(/_/g, ' ')}</span></label>
-                                            <input type="text" bind:value={adminInputs[varName]} required class="input input-bordered input-sm w-full font-mono" />
+                                            <label class="label py-1"><span class="label-text text-sm capitalize">{field.name.replace(/_/g, ' ')}</span></label>
+                                            
+                                            {#if field.type === 'secret'}
+                                                <input type="password" bind:value={field.value} required class="input input-bordered input-sm w-full font-mono" />
+                                                
+                                            {:else if field.type === 'textarea'}
+                                                <textarea bind:value={field.value} required class="textarea textarea-bordered textarea-sm w-full font-mono" rows="2"></textarea>
+                                                
+                                            {:else if field.type === 'bool' || field.type === 'boolean'}
+                                                <select bind:value={field.value} required class="select select-bordered select-sm w-full font-mono">
+                                                    <option value="true">True</option>
+                                                    <option value="false">False</option>
+                                                </select>
+                                                
+                                            {:else if field.type === 'int' || field.type === 'number'}
+                                                <input type="number" bind:value={field.value} required class="input input-bordered input-sm w-full font-mono" />
+                                                
+                                            {:else}
+                                                <input type="text" bind:value={field.value} required class="input input-bordered input-sm w-full font-mono" />
+                                            {/if}
                                         </div>
                                     {/each}
                                 </div>

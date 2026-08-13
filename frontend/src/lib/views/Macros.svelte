@@ -5,7 +5,6 @@
     let macros = [];
     let servers = [];
     let capabilityMap = {}; 
-    // capabilityMap looks like: { "system_user": { "set_password": { "username": "string", "password": "secret" } } }
 
     let editingId = null; 
     let formName = '';
@@ -39,11 +38,11 @@
         srvList.forEach(s => {
             if (!s.Capabilities) return;
             try {
-                const caps = JSON.parse(s.Capabilities); // The deeply nested JSON
+                const caps = JSON.parse(s.Capabilities); 
                 for (const [mod, actions] of Object.entries(caps)) {
                     if (!map[mod]) map[mod] = {};
                     for (const [act, vars] of Object.entries(actions)) {
-                        map[mod][act] = vars; // vars is { "username": "string" }
+                        map[mod][act] = vars;
                     }
                 }
             } catch(e) {}
@@ -66,21 +65,27 @@
         formDesc = macro.Description;
         
         try { 
-            const parsedSteps = JSON.parse(macro.Steps) || []; 
+            const parsedSteps = typeof macro.Steps === 'string' ? JSON.parse(macro.Steps) : 
+                                (typeof macro.steps === 'string' ? JSON.parse(macro.steps) : (macro.Steps || macro.steps || [])); 
             
-            // DECOMPILE BACK TO UI STATE
+            // DECOMPILE BACK TO UI STATE (Now using safe arrays)
             formSteps = parsedSteps.map(step => {
-                const decompiledParams = {};
+                const decompiledParams = [];
+                const reqVars = (capabilityMap[step.module] || {})[step.action] || {};
+
                 for (const [varName, compiledVal] of Object.entries(step.params || {})) {
-                    // Check if it's a bound variable like {{sys.username}}
+                    let source = 'static';
+                    let value = compiledVal;
+                    let type = reqVars[varName] || 'string'; // Look up exact type
+
                     if (typeof compiledVal === 'string' && compiledVal.startsWith('{{') && compiledVal.endsWith('}}')) {
-                        const inner = compiledVal.slice(2, -2); // removes {{ }}
-                        const [source, ...rest] = inner.split('.'); // splits "sys" and "username"
-                        decompiledParams[varName] = { source, value: rest.join('.') };
-                    } else {
-                        // It must be a static hardcoded value
-                        decompiledParams[varName] = { source: 'static', value: compiledVal };
+                        const inner = compiledVal.slice(2, -2);
+                        const parts = inner.split('.');
+                        source = parts[0];
+                        value = parts.slice(1).join('.');
                     }
+                    
+                    decompiledParams.push({ name: varName, source, value, type });
                 }
                 return { ...step, params: decompiledParams };
             });
@@ -90,34 +95,33 @@
     }
 
     // --- Dynamic Step Builder ---
-
     function addStep() {
         if (!selectedModule || !selectedAction) return;
         
         const requiredVars = capabilityMap[selectedModule][selectedAction] || {};
-        const stepParams = {};
+        const stepParams = [];
         
         for (const varName in requiredVars) {
             let defaultSource = 'static';
             let defaultValue = '';
+            let type = requiredVars[varName];
             
-            // Smarter intelligent defaults based on type hints!
-            if (requiredVars[varName] === 'secret') {
-                defaultSource = 'user';
-                defaultValue = varName; // defaults to 'password'
-            } else if (requiredVars[varName] === 'textarea') {
-                defaultSource = 'user';
-                defaultValue = varName; // defaults to 'ssh_public_key'
+            if (type === 'secret') {
+                defaultSource = 'user'; defaultValue = varName;
+            } else if (type === 'textarea') {
+                defaultSource = 'user'; defaultValue = varName;
             } else if (varName.includes('username')) {
-                defaultSource = 'sys';
-                defaultValue = 'username';
+                defaultSource = 'sys'; defaultValue = 'username';
+            } else if (type === 'bool' || type === 'boolean') {
+                defaultValue = 'false';
             }
             
-            stepParams[varName] = { 
+            stepParams.push({ 
+                name: varName, 
                 source: defaultSource, 
                 value: defaultValue,
-                type: requiredVars[varName] 
-            };
+                type: type 
+            });
         }
 
         formSteps = [...formSteps, { module: selectedModule, action: selectedAction, params: stepParams }];
@@ -138,19 +142,18 @@
     }
 
     // --- API Handlers ---
-
     async function handleSave(e) {
         e.preventDefault();
         isSaving = true;
         
-        // Compile the UI state `{ source: 'user', value: 'password' }` into `{{user.password}}` for the backend
+        // Re-compile the array back into the mapping string
         const compiledSteps = formSteps.map(step => {
             const compiledParams = {};
-            for (const [varName, binding] of Object.entries(step.params || {})) {
-                if (binding.source === 'static') {
-                    compiledParams[varName] = binding.value;
+            for (const param of step.params || []) {
+                if (param.source === 'static') {
+                    compiledParams[param.name] = param.value;
                 } else {
-                    compiledParams[varName] = `{{${binding.source}.${binding.value}}}`;
+                    compiledParams[param.name] = `{{${param.source}.${param.value}}}`;
                 }
             }
             return { module: step.module, action: step.action, params: compiledParams };
@@ -172,12 +175,12 @@
         } catch (err) { addToast(err.message, "error"); } 
         finally { isSaving = false; }
     }
+
     async function handleDelete(id, name) {
-        if (!confirm(`Are you sure you want to permanently delete the Macro "${name}"?`)) return;
+        if (!confirm(`Are you sure you want to delete Macro "${name}"?`)) return;
         try {
-            const res = await fetch(`/api/admin/macros/${id}`, { method: 'DELETE', headers: headers });
-            if (!res.ok) throw new Error("Failed to delete Macro");
-            
+            const res = await fetch(`/api/admin/macros/${id}`, { method: 'DELETE', headers });
+            if (!res.ok) throw new Error("Failed to delete");
             addToast("Macro deleted.", "success");
             if (editingId === id) resetForm();
             fetchData();
@@ -192,8 +195,6 @@
     </div>
 
     <div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
-        
-        <!-- MACRO BUILDER -->
         <div class="card bg-base-100 shadow-sm border border-base-300">
             <div class="card-body">
                 <div class="flex justify-between border-b border-base-200 pb-4 mb-2">
@@ -225,19 +226,18 @@
                                         </div>
                                     </div>
                                     
-                                    <!-- DYNAMIC PARAMETER BINDING -->
                                     <div class="space-y-3">
-                                        {#if !step.params || Object.keys(step.params).length === 0}
+                                        {#if step.params.length === 0}
                                             <div class="text-xs opacity-50">No parameters required for this action.</div>
                                         {/if}
                                         
-                                        {#each Object.entries(step.params || {}) as [varName, binding]}
+                                        {#each step.params as param}
                                             <div class="flex flex-col md:flex-row gap-2 items-start md:items-center">
-                                                <div class="font-mono text-xs w-32 truncate" title={varName}>{varName}</div>
+                                                <div class="font-mono text-xs w-32 truncate" title={param.name}>{param.name}</div>
                                                 
                                                 <select 
-                                                    bind:value={binding.source} 
-                                                    on:change={() => binding.value = binding.source === 'sys' ? 'username' : ''} 
+                                                    bind:value={param.source} 
+                                                    on:change={() => param.value = param.source === 'sys' ? 'username' : ((param.type === 'bool' || param.type === 'boolean') ? 'false' : '')} 
                                                     class="select select-bordered select-xs w-full md:w-32"
                                                 >
                                                     <option value="sys">System Data</option>
@@ -246,18 +246,33 @@
                                                     <option value="static">Static Value</option>
                                                 </select>
                                                 
-                                                {#if binding.source === 'static'}
-                                                    <input type="text" bind:value={binding.value} class="input input-bordered input-xs w-full font-mono" placeholder="Hardcoded string" />
-                                                {:else if binding.source === 'sys'}
-                                                    <select bind:value={binding.value} class="select select-bordered select-xs w-full font-mono">
+                                                {#if param.source === 'static'}
+                                                    {#if param.type === 'secret'}
+                                                        <input type="password" bind:value={param.value} class="input input-bordered input-xs w-full font-mono" placeholder="Secret..." />
+                                                    {:else if param.type === 'textarea'}
+                                                        <textarea bind:value={param.value} class="textarea textarea-bordered textarea-xs w-full font-mono leading-tight" rows="1" placeholder="Data..."></textarea>
+                                                    {:else if param.type === 'bool' || param.type === 'boolean'}
+                                                        <select bind:value={param.value} class="select select-bordered select-xs w-full font-mono">
+                                                            <option value="true">True</option>
+                                                            <option value="false">False</option>
+                                                        </select>
+                                                    {:else if param.type === 'int' || param.type === 'number'}
+                                                        <input type="number" bind:value={param.value} class="input input-bordered input-xs w-full font-mono" />
+                                                    {:else}
+                                                        <input type="text" bind:value={param.value} class="input input-bordered input-xs w-full font-mono" placeholder="Hardcoded string" />
+                                                    {/if}
+
+                                                {:else if param.source === 'sys'}
+                                                    <select bind:value={param.value} class="select select-bordered select-xs w-full font-mono">
                                                         <option value="username">username</option>
                                                         <option value="email">email</option>
                                                         <option value="id">user_id</option>
                                                     </select>
+
                                                 {:else}
-                                                    <input type="text" bind:value={binding.value}
+                                                    <input type="text" bind:value={param.value}
                                                     required
-                                                    on:input={(e) => binding.value = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '')}
+                                                    on:input={(e) => param.value = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '')}
                                                     class="input input-bordered input-xs w-full font-mono" placeholder="Prompt variable name..." />
                                                 {/if}
                                             </div>
@@ -269,7 +284,6 @@
                             {/each}
                         </div>
 
-                        <!-- Add Block Selector -->
                         <div class="flex flex-col md:flex-row gap-2">
                             <select bind:value={selectedModule} class="select select-bordered flex-1 select-sm font-mono" on:change={() => selectedAction = ''}>
                                 <option value="" disabled selected>Select Module</option>
@@ -299,7 +313,6 @@
             </div>
         </div>
 
-        <!-- EXISTING MACROS LIST (Keeping it simple for space) -->
         <div class="card bg-base-100 shadow-sm border border-base-300">
             <div class="card-body">
                 <h2 class="card-title text-xl mb-4">Saved Pipelines</h2>
@@ -308,11 +321,11 @@
                         <div class="border border-base-200 rounded-xl p-4 bg-base-200/20 hover:bg-base-200/60 group relative cursor-pointer" on:click={() => selectMacro(macro)}>
                             <div class="font-bold">{macro.Name}</div>
                             <div class="text-sm opacity-70 mb-2">{macro.Description}</div>
-                            <div class="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity m-4">
-                                <button class="btn btn-xs btn-outline btn-error" on:click={() => handleDelete(macro.ID, macro.Name)}>Delete</button>
+                            <div class="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity m-4 z-10">
+                                <button type="button" class="btn btn-xs btn-outline btn-error" on:click|stopPropagation={() => handleDelete(macro.ID, macro.Name)}>Delete</button>
                             </div>
                             <div class="flex flex-wrap gap-1">
-                                {#each JSON.parse(macro.Steps) as step, i}
+                                {#each (typeof macro.Steps === 'string' ? JSON.parse(macro.Steps) : (macro.Steps || macro.steps || [])) as step, i}
                                     <span class="badge badge-outline badge-sm font-mono opacity-70">{i+1}. {step.module}:{step.action}</span>
                                 {/each}
                             </div>

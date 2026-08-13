@@ -12,8 +12,7 @@
     let isSuccess = false;
 
     // NEW: Dynamic Form State
-    let requiredVars = [];
-    let userInputs = {};
+    let formFields = [];
 
     // CMS / Multi-page State
     let currentHtml = '';
@@ -32,14 +31,17 @@
             currentHtml = data.html_content;
             originalHtml = data.html_content;
 
-            // Initialize Dynamic Inputs from the Backend Response
-            requiredVars = data.required_vars || [];
-            requiredVars.forEach(v => {
-                userInputs[v] = '';
-            });
+            const vars = data.required_vars || {};
+            
+            // Map the Go dictionary into a safe array of objects
+            formFields = Object.entries(vars).map(([name, type]) => ({
+                name,
+                type,
+                value: (type === 'bool' || type === 'boolean' ? 'false' : '')
+            }));
 
         } catch (err) {
-            fetchError = err.message;
+            fetchError = err.message; 
         }
     });
 
@@ -86,12 +88,17 @@
         isLoading = true;
         submitMsg = '';
 
+        // Rebuild dictionary for Go Backend
+        const finalUserInputs = {};
+        formFields.forEach(f => {
+            finalUserInputs[f.name] = f.value;
+        });
+
         try {
             const res = await fetch(`/api/invite/${token}/complete`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                // NEW: Send the dynamically populated map!
-                body: JSON.stringify({ user_inputs: userInputs })
+                body: JSON.stringify({ user_inputs: finalUserInputs })
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message || res.statusText);
@@ -104,6 +111,7 @@
             isLoading = false;
         }
     }
+
 </script>
 
 <div class="container mx-auto p-6 max-w-3xl flex flex-col justify-center min-h-[80vh]">
@@ -173,19 +181,27 @@
                     <form on:submit={handleSetup} class="space-y-6">
                         
                         <!-- DYNAMIC FORM GENERATOR -->
-                        {#each requiredVars as varName}
+                        {#each formFields as field}
                             <div class="form-control">
-                                <label class="label"><span class="label-text font-bold capitalize">{varName.replace(/_/g, ' ')}</span></label>
+                                <label class="label"><span class="label-text font-bold capitalize">{field.name.replace(/_/g, ' ')}</span></label>
                                 
-                                {#if varName.toLowerCase().includes('password') || varName.toLowerCase().includes('secret')}
-                                    <input type="password" bind:value={userInputs[varName]} required minlength="8" class="input input-bordered input-primary w-full" placeholder="Must be at least 8 characters" />
+                                {#if field.type === 'secret'}
+                                    <input type="password" bind:value={field.value} required class="input input-bordered input-primary w-full" />
                                     
-                                {:else if varName.toLowerCase().includes('ssh') || varName.toLowerCase().includes('key')}
-                                    <textarea bind:value={userInputs[varName]} required rows="4" class="textarea textarea-bordered textarea-primary font-mono text-sm leading-relaxed" placeholder="ssh-ed25519 AAAAC3NzaC1..."></textarea>
-                                    <label class="label"><span class="label-text-alt text-gray-500">Ed25519 recommended</span></label>
+                                {:else if field.type === 'textarea'}
+                                    <textarea bind:value={field.value} required rows="4" class="textarea textarea-bordered textarea-primary font-mono text-sm leading-relaxed"></textarea>
+                                    
+                                {:else if field.type === 'bool' || field.type === 'boolean'}
+                                    <select bind:value={field.value} class="select select-bordered select-primary w-full" required>
+                                        <option value="true">True</option>
+                                        <option value="false">False</option>
+                                    </select>
+                                    
+                                {:else if field.type === 'int' || field.type === 'number'}
+                                    <input type="number" bind:value={field.value} required class="input input-bordered input-primary w-full" />
                                     
                                 {:else}
-                                    <input type="text" bind:value={userInputs[varName]} required class="input input-bordered input-primary w-full" />
+                                    <input type="text" bind:value={field.value} required class="input input-bordered input-primary w-full" />
                                 {/if}
                             </div>
                         {:else}

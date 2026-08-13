@@ -55,7 +55,7 @@ type InviteDataResponse struct {
 	Username    string `json:"username"`
 	Email       string `json:"email"`
 	HTMLContent string `json:"html_content"` // The fully rendered GFM
-	RequiredVars []string `json:"required_vars"`
+	RequiredVars map[string]string `json:"required_vars"`
 }
 
 // HandleGetInviteData fetches the invite, injects variables, and renders the Markdown to HTML
@@ -223,54 +223,103 @@ func HandleGetAdminVars(database *gorm.DB) http.HandlerFunc {
 		var req InspectAdminVarsRequest
 		json.NewDecoder(r.Body).Decode(&req)
 
-		varSet := make(map[string]bool)
+		// varSet maps the admin variable name to its type (e.g., "admin_pass" -> "secret")
+		varSet := make(map[string]string)
+
 		for _, tid := range req.TargetIDs {
 			var srv db.TargetServer
 			if err := database.First(&srv, "id = ?", tid).Error; err == nil && srv.ProvisionMacroID != "" {
 				var mac db.Macro
 				if err := database.First(&mac, "id = ?", srv.ProvisionMacroID).Error; err == nil {
-					matches := adminVarRegex.FindAllStringSubmatch(mac.Steps, -1)
-					for _, m := range matches {
-						if len(m) > 1 {
-							varSet[m[1]] = true // Store unique admin var names
+					
+					var steps []MacroStep
+					json.Unmarshal([]byte(mac.Steps), &steps)
+
+					var caps map[string]map[string]map[string]string
+					json.Unmarshal([]byte(srv.Capabilities), &caps)
+
+					for _, step := range steps {
+						for paramKey, paramVal := range step.Params {
+							matches := adminVarRegex.FindStringSubmatch(paramVal)
+							if len(matches) > 1 {
+								varName := matches[1]
+								varType := "string"
+
+								// Look up exact type from the Agent's reported Capabilities
+								if modCaps, ok := caps[step.Module]; ok {
+									if actCaps, ok := modCaps[step.Action]; ok {
+										if t, ok := actCaps[paramKey]; ok {
+											varType = t
+										}
+									}
+								}
+
+								// Prevent downgrading a strict type to a generic one
+								if existing, exists := varSet[varName]; exists {
+									if existing == "secret" || existing == "textarea" {
+										continue
+									}
+								}
+								varSet[varName] = varType
+							}
 						}
 					}
 				}
 			}
 		}
 
-		var reqVars []string
-		for k := range varSet {
-			reqVars = append(reqVars, k)
-		}
-		if reqVars == nil {
-			reqVars = []string{}
-		}
-
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"admin_vars": reqVars})
+		// Output looks like: {"admin_vars": {"db_password": "secret", "install_deps": "bool"}}
+		json.NewEncoder(w).Encode(map[string]interface{}{"admin_vars": varSet})
 	}
 }
 
 // Helper function to scan assigned macros
-func getRequiredUserVars(database *gorm.DB, userID string) []string {
+func getRequiredUserVars(database *gorm.DB, userID string) map[string]string {
 	var accesses []db.UserAccess
 	database.Where("user_id = ?", userID).Find(&accesses)
 
-	varSet := make(map[string]bool)
+	// varSet acts as both a deduplicator and a type mapper. (e.g., "password" -> "secret")
+	varSet := make(map[string]string)
 
 	for _, acc := range accesses {
-		if acc.TargetType == "SERVER" {
-			var srv db.TargetServer
-			// Find the server and its attached macro
-			if err := database.First(&srv, "id = ?", acc.TargetID).Error; err == nil && srv.ProvisionMacroID != "" {
-				var mac db.Macro
-				if err := database.First(&mac, "id = ?", srv.ProvisionMacroID).Error; err == nil {
-					// Scan the raw JSON string for {{user.xyz}} bindings
-					matches := userVarRegex.FindAllStringSubmatch(mac.Steps, -1)
-					for _, m := range matches {
-						if len(m) > 1 {
-							varSet[m[1]] = true
+		var srv db.TargetServer
+		// 1. Get the server to access its Capabilities map
+		if err := database.First(&srv, "id = ?", acc.TargetID).Error; err == nil && srv.ProvisionMacroID != "" {
+			var mac db.Macro
+			// 2. Get the macro to parse the specific steps
+			if err := database.First(&mac, "id = ?", srv.ProvisionMacroID).Error; err == nil {
+				
+				var steps []MacroStep
+				json.Unmarshal([]byte(mac.Steps), &steps)
+
+				var caps map[string]map[string]map[string]string
+				json.Unmarshal([]byte(srv.Capabilities), &caps)
+
+				// 3. Trace the parameter type
+				for _, step := range steps {
+					for paramKey, paramVal := range step.Params {
+						matches := userVarRegex.FindStringSubmatch(paramVal)
+						if len(matches) > 1 {
+							varName := matches[1] // Extract "password" from "{{user.password}}"
+							varType := "string"   // Default fallback type
+
+							// Look up exact type from the Agent's reported Capabilities
+							if modCaps, ok := caps[step.Module]; ok {
+								if actCaps, ok := modCaps[step.Action]; ok {
+									if t, ok := actCaps[paramKey]; ok {
+										varType = t
+									}
+								}
+							}
+
+							// Prevent overwriting a strict type (like 'secret') with a generic one ('string')
+							if existing, exists := varSet[varName]; exists {
+								if existing == "secret" || existing == "textarea" {
+									continue
+								}
+							}
+							varSet[varName] = varType
 						}
 					}
 				}
@@ -278,9 +327,5 @@ func getRequiredUserVars(database *gorm.DB, userID string) []string {
 		}
 	}
 
-	var reqVars []string
-	for k := range varSet {
-		reqVars = append(reqVars, k)
-	}
-	return reqVars
+	return varSet
 }

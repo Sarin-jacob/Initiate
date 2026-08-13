@@ -114,21 +114,21 @@ func (h *Hub) handleVirtualGiteaTask(taskID string, event string, payload map[st
 	case "gitea:create_user":
 		email, _ := payload["email"].(string) 
 		password, _ := payload["password"].(string)
-		askChangeStr, _ := payload["ask_password_change"].(string)
-		askChange := askChangeStr == "true" || askChangeStr == "1"
+		askChange, _ := payload["ask_password_change"].(bool)
+		 
 		
 		err = h.gitea.CreateUser(context.Background(), username, email, password, askChange)
 
 	case "gitea:set_password": // NEW!
 		password, _ := payload["password"].(string)
-		askChangeStr, _ := payload["ask_password_change"].(string)
-		askChange := askChangeStr == "true" || askChangeStr == "1"
+		askChange, _ := payload["ask_password_change"].(bool)
+		 
 
 		err = h.gitea.SetPassword(context.Background(), username, password, askChange)
 	
 	case "gitea:delete_user":
-		purgeStr, _ := payload["purge_repos"].(string)
-		purge := purgeStr == "true" || purgeStr == "1"
+		purge, _ := payload["purge_repos"].(bool)
+		 
 		
 		err = h.gitea.DeleteUser(context.Background(), username, purge)
 	
