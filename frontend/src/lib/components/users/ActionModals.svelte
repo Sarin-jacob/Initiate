@@ -1,5 +1,5 @@
 <script>
-    import { createEventDispatcher } from 'svelte';
+    import { createEventDispatcher,onMount } from 'svelte';
     
     export let macros = [];
     
@@ -22,9 +22,9 @@
     let deprovPurgeRepos = false;
     let deprovPurgeHome = false;
 
-    let adminInputs = {};
+    let capabilityMap = {};
     let hasUserPrompts = false;
-    let requiredAdminVars = [];
+    let adminFormFields = [];
 
     // Exposed method for parent to open modals
     export function open(type, user) {
@@ -36,6 +36,31 @@
         document.getElementById(`modal_${type}`).close();
         activeUser = null;
     }
+
+    onMount(async () => {
+        try {
+            const res = await fetch('/api/admin/servers', { headers });
+            if (res.ok) {
+                const srvList = await res.json() || [];
+                const map = {};
+                srvList.forEach(s => {
+                    if (!s.Capabilities) return;
+                    try {
+                        const caps = JSON.parse(s.Capabilities);
+                        for (const [mod, actions] of Object.entries(caps)) {
+                            if (!map[mod]) map[mod] = {};
+                            for (const [act, vars] of Object.entries(actions)) {
+                                map[mod][act] = vars;
+                            }
+                        }
+                    } catch(e) {}
+                });
+                capabilityMap = map;
+            }
+        } catch (e) {
+            console.error("Failed to load capability map");
+        }
+    });
 
     async function handleExtendExpiry() {
         isProcessing = true;
@@ -50,37 +75,63 @@
         finally { isProcessing = false; }
     }
 
-    $: if (selectedMacroId && macros.length > 0) {
+    $: if (selectedMacroId && macros.length > 0 && Object.keys(capabilityMap).length > 0) {
         const macro = macros.find(m => m.ID === selectedMacroId);
         if (macro) {
-            adminInputs = {};
-            // Handle both Go capitalized 'Steps' or JSON lowercase 'steps'
-            const stepsStr = typeof macro.Steps === 'string' ? macro.Steps : 
-                             (typeof macro.steps === 'string' ? macro.steps : JSON.stringify(macro.Steps || macro.steps));
+            hasUserPrompts = false;
+            const newAdminFields = [];
             
-            // Check for user prompts
-            hasUserPrompts = /\{\{user\.[a-zA-Z0-9_]+\}\}/.test(stepsStr);
-
-            // Extract admin prompts
-            const adminRegex = /\{\{admin\.([a-zA-Z0-9_]+)\}\}/g;
-            let matches;
-            const adminSet = new Set();
-            while ((matches = adminRegex.exec(stepsStr)) !== null) {
-                adminSet.add(matches[1]);
-            }
-            requiredAdminVars = Array.from(adminSet);
+            // Standardize JSON format
+            const steps = typeof macro.Steps === 'string' ? JSON.parse(macro.Steps) : 
+                          (typeof macro.steps === 'string' ? JSON.parse(macro.steps) : (macro.Steps || macro.steps || []));
+            
+            steps.forEach(step => {
+                // Get the type map for this specific agent capability
+                const reqVars = (capabilityMap[step.module] || {})[step.action] || {};
+                
+                Object.entries(step.params || {}).forEach(([paramKey, paramVal]) => {
+                    if (typeof paramVal === 'string') {
+                        // 1. Block Execution if user interaction is required
+                        if (paramVal.includes('{{user.')) hasUserPrompts = true;
+                        
+                        // 2. Extract Admin variables & their types
+                        const adminMatch = paramVal.match(/\{\{admin\.([a-zA-Z0-9_]+)\}\}/);
+                        if (adminMatch) {
+                            const adminVarName = adminMatch[1];
+                            const expectedType = reqVars[paramKey] || 'string';
+                            
+                            // Prevent duplicates
+                            if (!newAdminFields.find(f => f.name === adminVarName)) {
+                                newAdminFields.push({
+                                    name: adminVarName,
+                                    type: expectedType,
+                                    value: (expectedType === 'bool' || expectedType === 'boolean') ? 'false' : ''
+                                });
+                            }
+                        }
+                    }
+                });
+            });
+            adminFormFields = newAdminFields;
         }
     }
 
     async function handleApplyMacro() {
         isProcessing = true;
+        
+        // Rebuild Dictionary
+        const finalAdminInputs = {};
+        adminFormFields.forEach(f => {
+            finalAdminInputs[f.name] = f.value;
+        });
+
         try {
             await fetch(`/api/admin/users/${activeUser.ID}/macro`, {
                 method: 'POST', headers,
                 body: JSON.stringify({ 
                     macro_id: selectedMacroId, 
                     server_id: selectedMacroServer,
-                    admin_inputs: adminInputs // NEW: Send the parsed inputs
+                    admin_inputs: finalAdminInputs 
                 })
             });
             close('macro');
@@ -146,20 +197,38 @@
                 {/if}
             </select>
 
-            {#if requiredAdminVars.length > 0}
+            {#if adminFormFields.length > 0}
                 <div class="divider text-sm">Administrator Inputs Required</div>
-                {#each requiredAdminVars as adminVar}
-                    <div class="form-control w-full">
-                        <label class="label"><span class="label-text capitalize">{adminVar.replace(/_/g, ' ')}</span></label>
-                        <input type="text" bind:value={adminInputs[adminVar]} class="input input-bordered w-full" required />
+                {#each adminFormFields as field}
+                    <div class="form-control w-full mb-2">
+                        <label class="label"><span class="label-text capitalize">{field.name.replace(/_/g, ' ')}</span></label>
+                        
+                        {#if field.type === 'secret'}
+                            <input type="password" bind:value={field.value} required class="input input-bordered w-full font-mono" />
+                            
+                        {:else if field.type === 'textarea'}
+                            <textarea bind:value={field.value} required class="textarea textarea-bordered w-full font-mono" rows="3"></textarea>
+                            
+                        {:else if field.type === 'bool' || field.type === 'boolean'}
+                            <select bind:value={field.value} required class="select select-bordered w-full font-mono">
+                                <option value="true">True</option>
+                                <option value="false">False</option>
+                            </select>
+                            
+                        {:else if field.type === 'int' || field.type === 'number'}
+                            <input type="number" bind:value={field.value} required class="input input-bordered w-full font-mono" />
+                            
+                        {:else}
+                            <input type="text" bind:value={field.value} required class="input input-bordered w-full font-mono" />
+                        {/if}
                     </div>
                 {/each}
             {/if}
 
             {#if hasUserPrompts}
-                <div class="alert alert-warning shadow-sm mt-4">
+                <div class="alert alert-warning shadow-sm mt-4 text-sm text-left">
                     <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                    <span class="text-sm">This macro requires end-user input (e.g., passwords). It cannot be run manually from the dashboard.</span>
+                    <span>This macro requires end-user input (e.g., passwords). It cannot be run manually from the dashboard.</span>
                 </div>
             {/if}
         </div>
