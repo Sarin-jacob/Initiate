@@ -3,6 +3,7 @@ package mailer
 import (
 	"bytes"
 	"fmt"
+	"net/mail"
 	"net/smtp"
 )
 
@@ -26,9 +27,15 @@ func NewMailer(config SMTPConfig) *Mailer {
 func (m *Mailer) SendHTML(toEmail, subject, htmlBody string) error {
 	var body bytes.Buffer
 
+	// NEW: Safe extraction for the SMTP envelope
+	envelopeFrom := m.config.From
+	if parsed, err := mail.ParseAddress(m.config.From); err == nil {
+		envelopeFrom = parsed.Address
+	}
+
 	// Construct MIME headers for HTML email
 	body.WriteString(fmt.Sprintf("To: %s\r\n", toEmail))
-	body.WriteString(fmt.Sprintf("From: %s\r\n", m.config.From))
+	body.WriteString(fmt.Sprintf("From: %s\r\n", m.config.From)) // Keeps formatted "Name <email>"
 	body.WriteString(fmt.Sprintf("Subject: %s\r\n", subject))
 	body.WriteString("MIME-version: 1.0\r\n")
 	body.WriteString("Content-Type: text/html; charset=\"UTF-8\"\r\n")
@@ -63,7 +70,8 @@ func (m *Mailer) SendHTML(toEmail, subject, htmlBody string) error {
 	auth := smtp.PlainAuth("", m.config.Username, m.config.Password, m.config.Host)
 	addr := fmt.Sprintf("%s:%s", m.config.Host, m.config.Port)
 
-	err := smtp.SendMail(addr, auth, m.config.From, []string{toEmail}, body.Bytes())
+	// Send via envelopeFrom (strict address), NOT m.config.From
+	err := smtp.SendMail(addr, auth, envelopeFrom, []string{toEmail}, body.Bytes())
 	if err != nil {
 		return fmt.Errorf("failed to send SMTP email: %w", err)
 	}
