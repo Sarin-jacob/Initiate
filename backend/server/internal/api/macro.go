@@ -29,8 +29,9 @@ type MacroPayload struct {
 }
 
 type ApplyMacroRequest struct {
-	MacroID  string `json:"macro_id"`
-	ServerID string `json:"server_id"`
+	MacroID  string 				`json:"macro_id"`
+	ServerID string 				`json:"server_id"`
+	AdminInputs map[string]string 	`json:"admin_inputs"`
 }
 
 // HandleGetMacros returns all saved Macros
