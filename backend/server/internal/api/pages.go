@@ -107,8 +107,9 @@ func HandleGetPageBySlug(database *gorm.DB) http.HandlerFunc {
 }
 
 // sanitizeTemplate prevents Go's text/template from crashing on unknown variables
-func sanitizeTemplate(content string, isPreview bool) string {
-	inviteurl := fmt.Sprintf("%s/invite?token=preview-token-xyz",config.App.BaseURL)
+func sanitizeTemplate(content string, isPreview bool, urlUsername string, urlEmail string) string {
+	inviteurl := fmt.Sprintf("%s/invite?token=preview-token-xyz", config.App.BaseURL)
+	
 	// 1. Swap known variables with mock data or placeholders
 	if isPreview {
 		content = strings.ReplaceAll(content, "{{.Username}}", "JaneDoe")
@@ -118,9 +119,20 @@ func sanitizeTemplate(content string, isPreview bool) string {
 		content = strings.ReplaceAll(content, "{{.Token}}", "preview-token-xyz")
 		content = strings.ReplaceAll(content, "{{.InviteURL}}", inviteurl)
 	} else {
-		// Public Docs don't have user context, so we show placeholders
-		content = strings.ReplaceAll(content, "{{.Username}}", "[Your Username]")
-		content = strings.ReplaceAll(content, "{{.Email}}", "[Your Email]")
+		// Set placeholders, overriding with URL params if they were provided
+		usernameVal := "[Your Username]"
+		if urlUsername != "" {
+			usernameVal = urlUsername
+		}
+
+		emailVal := "[Your Email]"
+		if urlEmail != "" {
+			emailVal = urlEmail
+		}
+
+		// Public Docs use dynamic params or placeholders
+		content = strings.ReplaceAll(content, "{{.Username}}", usernameVal)
+		content = strings.ReplaceAll(content, "{{.Email}}", emailVal)
 		content = strings.ReplaceAll(content, "{{.GiteaURL}}", config.App.GiteaExternalURL)
 		content = strings.ReplaceAll(content, "{{.SystemURL}}", config.App.BaseURL)
 	}
@@ -141,7 +153,7 @@ func HandlePreviewPage() http.HandlerFunc {
 			return
 		}
 
-		safeContent := sanitizeTemplate(req.Content, true)
+		safeContent := sanitizeTemplate(req.Content, true, "", "")
 		
 		// Pass nil data since we already injected the strings safely
 		renderedHTML, err := markdown.RenderGFM(safeContent, nil) 
@@ -162,13 +174,19 @@ func HandleGetPublicPage(database *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := chi.URLParam(r, "slug")
 		
+		// 1. Extract optional URL parameters
+		query := r.URL.Query()
+		urlUsername := query.Get("username")
+		urlEmail := query.Get("email")
+		
 		var page db.Page
 		if err := database.Where("slug = ?", slug).First(&page).Error; err != nil {
 			http.Error(w, "Page not found", http.StatusNotFound)
 			return
 		}
 
-		safeContent := sanitizeTemplate(page.Content, false)
+		// 2. Pass the extracted params to the sanitizer
+		safeContent := sanitizeTemplate(page.Content, false, urlUsername, urlEmail)
 		renderedHTML, _ := markdown.RenderGFM(safeContent, nil)
 
 		w.Header().Set("Content-Type", "application/json")
