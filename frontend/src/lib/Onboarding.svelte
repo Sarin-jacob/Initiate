@@ -33,8 +33,8 @@
             originalHtml = data.html_content;
 
             // Initialize Dynamic Inputs from the Backend Response
-            requiredVars = data.required_vars || [];
-            requiredVars.forEach(v => {
+            requiredVars = data.required_vars || {};
+            Object.keys(requiredVars).forEach(v => {
                 userInputs[v] = '';
             });
 
@@ -173,16 +173,24 @@
                     <form on:submit={handleSetup} class="space-y-6">
                         
                         <!-- DYNAMIC FORM GENERATOR -->
-                        {#each requiredVars as varName}
+                        {#each Object.entries(requiredVars) as [varName, varType]}
                             <div class="form-control">
                                 <label class="label"><span class="label-text font-bold capitalize">{varName.replace(/_/g, ' ')}</span></label>
                                 
-                                {#if varName.toLowerCase().includes('password') || varName.toLowerCase().includes('secret')}
-                                    <input type="password" bind:value={userInputs[varName]} required minlength="8" class="input input-bordered input-primary w-full" placeholder="Must be at least 8 characters" />
+                                {#if varType === 'secret'}
+                                    <input type="password" bind:value={userInputs[varName]} required class="input input-bordered input-primary w-full" />
                                     
-                                {:else if varName.toLowerCase().includes('ssh') || varName.toLowerCase().includes('key')}
-                                    <textarea bind:value={userInputs[varName]} required rows="4" class="textarea textarea-bordered textarea-primary font-mono text-sm leading-relaxed" placeholder="ssh-ed25519 AAAAC3NzaC1..."></textarea>
-                                    <label class="label"><span class="label-text-alt text-gray-500">Ed25519 recommended</span></label>
+                                {:else if varType === 'textarea'}
+                                    <textarea bind:value={userInputs[varName]} required rows="4" class="textarea textarea-bordered textarea-primary font-mono text-sm leading-relaxed"></textarea>
+                                    
+                                {:else if varType === 'boolean'}
+                                    <select bind:value={userInputs[varName]} class="select select-bordered select-primary w-full" required>
+                                        <option value="true">True</option>
+                                        <option value="false">False</option>
+                                    </select>
+                                    
+                                {:else if varType === 'int' || varType === 'number'}
+                                    <input type="number" bind:value={userInputs[varName]} required class="input input-bordered input-primary w-full" />
                                     
                                 {:else}
                                     <input type="text" bind:value={userInputs[varName]} required class="input input-bordered input-primary w-full" />
