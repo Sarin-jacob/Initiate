@@ -28,10 +28,15 @@
         e.preventDefault();
         const form = e.target;
         try {
-            await fetch('/api/admin/servers', {
+            const res = await fetch('/api/admin/servers', {
                 method: 'POST', headers: getHeaders(),
-                body: JSON.stringify({ name: form.serverName.value, public_key: form.publicKey.value })
+                body: JSON.stringify({ 
+                    name: form.serverName.value, 
+                    address: form.serverAddress.value, // NEW
+                    public_key: form.publicKey.value 
+                })
             });
+            if (!res.ok) throw new Error(await res.text());
             form.reset();
             fetchData();
         } catch (err) { alert(err.message); }
@@ -102,7 +107,10 @@
             <div class="card-body bg-base-200/30 rounded-xl">
                 <h3 class="font-bold text-lg mb-2">Register Agent</h3>
                 <form on:submit={handleAddServer} class="space-y-4">
-                    <input type="text" name="serverName" required class="input input-bordered input-md w-full" placeholder="e.g. prod-db-node" />
+                    <div class="grid grid-cols-2 gap-4">
+                        <input type="text" name="serverName" required pattern="[a-zA-Z0-9_-]+" title="No spaces allowed (Use hyphens or underscores)" class="input input-bordered input-md w-full font-mono" placeholder="Name (e.g. prod-db-node)" />
+                        <input type="text" name="serverAddress" required class="input input-bordered input-md w-full font-mono" placeholder="IP/Hostname (e.g. 10.0.0.5)" />
+                    </div>
                     <textarea name="publicKey" required class="textarea textarea-bordered h-24 font-mono text-sm w-full" placeholder="Paste Ed25519 Public Key"></textarea>
                     <button type="submit" class="btn btn-neutral w-full">Authorize Agent</button>
                 </form>
