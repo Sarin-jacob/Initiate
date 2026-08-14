@@ -169,7 +169,7 @@ func seedVirtualAgents(db *gorm.DB) {
 		// Does not exist, create it
 		db.Create(&TargetServer{
 			ID:           "internal-gitea",
-			Name:         "Central Gitea Server",
+			Name:         "Gitea",
 			Address:      "localhost",
 			PublicKey:    "internal-virtual-agent",
 			Status:       "ONLINE", // Always online
