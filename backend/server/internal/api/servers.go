@@ -20,6 +20,7 @@ type RegisterServerRequest struct {
 }
 
 type ServerConfigRequest struct {
+	Name      			   string `json:"name"`
 	Address                string `json:"address"`
 	ProvisionMacroID       string `json:"provision_macro_id"`
 	SoftDeprovisionMacroID string `json:"soft_deprovision_macro_id"`
@@ -92,8 +93,16 @@ func HandleConfigServer(database *gorm.DB) http.HandlerFunc {
 			http.Error(w, "Invalid payload", http.StatusBadRequest)
 			return
 		}
+		
+		nameRegex := regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+		if !nameRegex.MatchString(req.Name) {
+			http.Error(w, "Server Name must not contain spaces or special characters", http.StatusBadRequest)
+			return
+		}
+
 
 		if err := database.Model(&db.TargetServer{}).Where("id = ?", serverID).Updates(map[string]interface{}{
+			"name":						 req.Name,
 			"address":                   req.Address,
 			"provision_macro_id":        req.ProvisionMacroID,
 			"soft_deprovision_macro_id": req.SoftDeprovisionMacroID,
