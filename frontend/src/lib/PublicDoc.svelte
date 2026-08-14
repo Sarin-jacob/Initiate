@@ -10,7 +10,25 @@
     onMount(async () => {
         try {
             // We use the markdown preview endpoint to convert the raw content to HTML safely
-            const renderRes = await fetch(`/api/docs/${slug}`);
+            const urlParams = new URLSearchParams(window.location.search);
+            const username = urlParams.get('username');
+            const email = urlParams.get('email');
+            
+            
+            // 2. Build the API URL dynamically
+            let apiUrl = `/api/docs/${slug}`;
+            const apiParams = new URLSearchParams();
+            
+            if (username) apiParams.append('username', username);
+            if (email) apiParams.append('email', email);
+            
+            const queryString = apiParams.toString();
+            if (queryString) {
+                apiUrl += `?${queryString}`;
+            }
+
+            // 3. Fetch the content using the appended query string
+            const renderRes = await fetch(apiUrl);
             if (!renderRes.ok) throw new Error("Document not found");
 
             const renderData = await renderRes.json();
