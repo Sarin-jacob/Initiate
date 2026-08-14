@@ -163,12 +163,26 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 				bodyMD = welcomePage.Content // Use CMS Body
 			}
 
+			// NEW: Look up actual assigned servers for the user so the email can render {{range .Servers}}
+			var accesses []db.UserAccess
+			database.Where("user_id = ?", user.ID).Find(&accesses)
+			var assignedServers []markdown.ServerInfo
+			for _, access := range accesses {
+				if access.TargetType == "SERVER" {
+					var srv db.TargetServer
+					if err := database.First(&srv, "id = ?", access.TargetID).Error; err == nil {
+						assignedServers = append(assignedServers, markdown.ServerInfo{Name: srv.Name, Address: srv.Address})
+					}
+				}
+			}
+
 			// 2. Render Markdown to HTML
 			emailData := markdown.OnboardingTemplateData{
 				Username:  user.Username,
 				Email:     user.Email,
-				GiteaURL: loginURL, // Mapped so {{.GiteaURL}} works in the markdown
+				GiteaURL:  loginURL, // Mapped so {{.GiteaURL}} works in the markdown
 				SystemURL: config.App.BaseURL,
+				Servers:   assignedServers, // INJECT THE SERVERS ARRAY HERE
 			}
 			
 			renderedHTML, err := markdown.RenderGFM(bodyMD, emailData)
@@ -180,7 +194,7 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 			styledHref := fmt.Sprintf(`style="background-color: #18181b; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin: 10px 0 20px 0;" href="%s"`, loginURL)
 			renderedHTML = strings.ReplaceAll(renderedHTML, fmt.Sprintf(`href="%s"`, loginURL), styledHref)
 
-			// 4. Append injected Docs (Keep your existing doc recovery loop here!)
+			// 4. Append injected Docs
 			if user.AdminContext != "" {
 				var adminCtx map[string]string
 				json.Unmarshal([]byte(user.AdminContext), &adminCtx)
@@ -193,7 +207,14 @@ func HandleCompleteOnboarding(database *gorm.DB, hub *agenthub.Hub, giteaClient 
 						for _, slug := range slugs {
 							var doc db.Page
 							if err := database.First(&doc, "slug = ?", slug).Error; err == nil {
-								docURL := fmt.Sprintf("%s/?docs=%s", config.App.BaseURL, doc.Slug)
+								// Construct URL with standard params
+								docURL := fmt.Sprintf("%s/?docs=%s&username=%s&email=%s", config.App.BaseURL, doc.Slug, user.Username, user.Email)
+								
+								// Inject all server data into the URL so the docs render correctly
+								for _, srv := range assignedServers {
+									docURL += fmt.Sprintf("&server=%s|%s", srv.Name, srv.Address)
+								}
+
 								renderedHTML += fmt.Sprintf(`<a href="%s" style="border: 2px solid #e4e4e7; color: #3f3f46; padding: 8px 16px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin: 0 10px 10px 0;">%s</a>`, docURL, doc.Title)
 							}
 						}
