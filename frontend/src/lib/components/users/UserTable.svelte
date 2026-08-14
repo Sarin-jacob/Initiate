@@ -160,8 +160,8 @@
                             <div class="flex flex-wrap gap-2 max-w-[250px]">
                                 {#if user.access_list}
                                     {#each user.access_list as srv}
-                                        <span class="badge {srv.TargetID === 'internal-gitea' ? 'badge-secondary' : 'badge-info'} p-3" title={srv.TargetID}>
-                                            {srv.TargetID === 'internal-gitea' ? 'Gitea' : srv.TargetID.substring(0, 8)}
+                                        <span class="badge {srv.TargetType === 'GITEA' ? 'badge-secondary' : 'badge-info'} p-3 font-mono font-bold" title={srv.TargetID}>
+                                            {srv.TargetName}
                                         </span>
                                     {/each}
                                 {/if}
