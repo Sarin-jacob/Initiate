@@ -20,6 +20,7 @@ type RegisterServerRequest struct {
 }
 
 type ServerConfigRequest struct {
+	Address                string `json:"address"`
 	ProvisionMacroID       string `json:"provision_macro_id"`
 	SoftDeprovisionMacroID string `json:"soft_deprovision_macro_id"`
 	HardDeprovisionMacroID string `json:"hard_deprovision_macro_id"`
@@ -93,6 +94,7 @@ func HandleConfigServer(database *gorm.DB) http.HandlerFunc {
 		}
 
 		if err := database.Model(&db.TargetServer{}).Where("id = ?", serverID).Updates(map[string]interface{}{
+			"address":                   req.Address,
 			"provision_macro_id":        req.ProvisionMacroID,
 			"soft_deprovision_macro_id": req.SoftDeprovisionMacroID,
 			"hard_deprovision_macro_id": req.HardDeprovisionMacroID,
