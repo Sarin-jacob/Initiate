@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -14,10 +15,13 @@ import (
 
 type RegisterServerRequest struct {
 	Name      string `json:"name"`
+	Address   string `json:"address"`
 	PublicKey string `json:"public_key"`
 }
 
 type ServerConfigRequest struct {
+	Name      			   string `json:"name"`
+	Address                string `json:"address"`
 	ProvisionMacroID       string `json:"provision_macro_id"`
 	SoftDeprovisionMacroID string `json:"soft_deprovision_macro_id"`
 	HardDeprovisionMacroID string `json:"hard_deprovision_macro_id"`
@@ -32,9 +36,16 @@ func HandleRegisterServer(database *gorm.DB) http.HandlerFunc {
 			return
 		}
 
+		nameRegex := regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+		if !nameRegex.MatchString(req.Name) {
+			http.Error(w, "Server Name must not contain spaces or special characters", http.StatusBadRequest)
+			return
+		}
+
 		server := db.TargetServer{
 			ID:        uuid.New().String(),
 			Name:      req.Name,
+			Address:   req.Address,
 			PublicKey: req.PublicKey,
 			Status:    "OFFLINE", // Switches to ONLINE when it connects via WS
 		}
@@ -82,8 +93,17 @@ func HandleConfigServer(database *gorm.DB) http.HandlerFunc {
 			http.Error(w, "Invalid payload", http.StatusBadRequest)
 			return
 		}
+		
+		nameRegex := regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+		if !nameRegex.MatchString(req.Name) {
+			http.Error(w, "Server Name must not contain spaces or special characters", http.StatusBadRequest)
+			return
+		}
+
 
 		if err := database.Model(&db.TargetServer{}).Where("id = ?", serverID).Updates(map[string]interface{}{
+			"name":						 req.Name,
+			"address":                   req.Address,
 			"provision_macro_id":        req.ProvisionMacroID,
 			"soft_deprovision_macro_id": req.SoftDeprovisionMacroID,
 			"hard_deprovision_macro_id": req.HardDeprovisionMacroID,

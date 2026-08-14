@@ -25,7 +25,8 @@ type User struct {
 // TargetServer represents an Edge Agent
 type TargetServer struct {
 	ID           			string    `gorm:"primaryKey;type:uuid"`
-	Name         			string    `gorm:"not null"`
+	Name         			string    `gorm:"uniqueIndex;not null"`
+	Address                	string
 	PublicKey    			string    `gorm:"uniqueIndex;not null"`
 	Status       			string    `gorm:"default:'OFFLINE'"`
 	Capabilities 			string    `gorm:"type:text"`
@@ -168,7 +169,8 @@ func seedVirtualAgents(db *gorm.DB) {
 		// Does not exist, create it
 		db.Create(&TargetServer{
 			ID:           "internal-gitea",
-			Name:         "Central Gitea Server",
+			Name:         "Gitea",
+			Address:      "localhost",
 			PublicKey:    "internal-virtual-agent",
 			Status:       "ONLINE", // Always online
 			Capabilities: capabilities,

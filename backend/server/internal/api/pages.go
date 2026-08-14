@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -43,10 +42,8 @@ func HandleSavePage(database *gorm.DB) http.HandlerFunc {
 		var req SavePageRequest
 		json.NewDecoder(r.Body).Decode(&req)
 
-		// Upsert logic based on Slug
 		var page db.Page
 		if err := database.Where("slug = ?", req.Slug).First(&page).Error; err != nil {
-			// Create new
 			page = db.Page{ID: uuid.New().String(), Slug: req.Slug}
 		}
 
@@ -59,6 +56,42 @@ func HandleSavePage(database *gorm.DB) http.HandlerFunc {
 	}
 }
 
+// HandlePreviewPage processes markdown safely for the Admin editor
+func HandlePreviewPage() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req PagePreviewRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid payload", http.StatusBadRequest)
+			return
+		}
+
+		// Inject Mock Data so the Admin can preview how variables and loops look!
+		mockData := markdown.OnboardingTemplateData{
+			Username:  "JaneDoe",
+			Email:     "jane.doe@company.com",
+			GiteaURL:  config.App.GiteaExternalURL,
+			SystemURL: config.App.BaseURL,
+			Token:     "preview-token-xyz",
+			InviteURL: fmt.Sprintf("%s/invite?token=preview-token-xyz", config.App.BaseURL),
+			Servers: []markdown.ServerInfo{
+				{Name: "production_db", Address: "10.0.0.50"},
+				{Name: "edge_gateway", Address: "192.168.1.100"},
+			},
+		}
+
+		renderedHTML, err := markdown.RenderGFM(req.Content, mockData)
+		if err != nil {
+			http.Error(w, "Markdown render failed. Check your {{ }} syntax.", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"html_content": renderedHTML,
+		})
+	}
+}
+
 // --- USER ONBOARDING ENDPOINTS (Secured by Token) ---
 
 func HandleGetPageBySlug(database *gorm.DB) http.HandlerFunc {
@@ -66,7 +99,6 @@ func HandleGetPageBySlug(database *gorm.DB) http.HandlerFunc {
 		rawToken := chi.URLParam(r, "token")
 		slug := chi.URLParam(r, "slug")
 
-		// 1. Verify token exists and is valid
 		var invite db.Invitation
 		if err := database.Where("token_hash = ?", crypto.HashToken(rawToken)).First(&invite).Error; err != nil {
 			http.Error(w, "Invalid token", http.StatusUnauthorized)
@@ -80,20 +112,32 @@ func HandleGetPageBySlug(database *gorm.DB) http.HandlerFunc {
 		var user db.User
 		database.First(&user, "id = ?", invite.UserID)
 
-		// 2. Fetch the requested page
 		var page db.Page
 		if err := database.Where("slug = ?", slug).First(&page).Error; err != nil {
 			http.Error(w, "Page not found", http.StatusNotFound)
 			return
 		}
 
-		// 3. Render Markdown safely
+		// Look up actual assigned servers for the authenticated user
+		var accesses []db.UserAccess
+		database.Where("user_id = ?", user.ID).Find(&accesses)
+		var assignedServers []markdown.ServerInfo
+		for _, access := range accesses {
+			if access.TargetType == "SERVER" {
+				var srv db.TargetServer
+				if err := database.First(&srv, "id = ?", access.TargetID).Error; err == nil {
+					assignedServers = append(assignedServers, markdown.ServerInfo{Name: srv.Name, Address: srv.Address})
+				}
+			}
+		}
+
 		templateData := markdown.OnboardingTemplateData{
 			Username:  user.Username,
 			Email:     user.Email,
 			GiteaURL:  config.App.GiteaExternalURL,
 			SystemURL: config.App.BaseURL,
 			Token:     rawToken,
+			Servers:   assignedServers,
 		}
 
 		renderedHTML, _ := markdown.RenderGFM(page.Content, templateData)
@@ -106,88 +150,55 @@ func HandleGetPageBySlug(database *gorm.DB) http.HandlerFunc {
 	}
 }
 
-// sanitizeTemplate prevents Go's text/template from crashing on unknown variables
-func sanitizeTemplate(content string, isPreview bool, urlUsername string, urlEmail string) string {
-	inviteurl := fmt.Sprintf("%s/invite?token=preview-token-xyz", config.App.BaseURL)
-	
-	// 1. Swap known variables with mock data or placeholders
-	if isPreview {
-		content = strings.ReplaceAll(content, "{{.Username}}", "JaneDoe")
-		content = strings.ReplaceAll(content, "{{.Email}}", "jane.doe@company.com")
-		content = strings.ReplaceAll(content, "{{.GiteaURL}}", config.App.GiteaExternalURL)
-		content = strings.ReplaceAll(content, "{{.SystemURL}}", config.App.BaseURL)
-		content = strings.ReplaceAll(content, "{{.Token}}", "preview-token-xyz")
-		content = strings.ReplaceAll(content, "{{.InviteURL}}", inviteurl)
-	} else {
-		// Set placeholders, overriding with URL params if they were provided
-		usernameVal := "[Your Username]"
-		if urlUsername != "" {
-			usernameVal = urlUsername
-		}
-
-		emailVal := "[Your Email]"
-		if urlEmail != "" {
-			emailVal = urlEmail
-		}
-
-		// Public Docs use dynamic params or placeholders
-		content = strings.ReplaceAll(content, "{{.Username}}", usernameVal)
-		content = strings.ReplaceAll(content, "{{.Email}}", emailVal)
-		content = strings.ReplaceAll(content, "{{.GiteaURL}}", config.App.GiteaExternalURL)
-		content = strings.ReplaceAll(content, "{{.SystemURL}}", config.App.BaseURL)
-	}
-
-	// 2. Escape any remaining {{ }} so the Go template engine treats them as literal strings
-	content = strings.ReplaceAll(content, "{{", "&#123;&#123;")
-	content = strings.ReplaceAll(content, "}}", "&#125;&#125;")
-	
-	return content
-}
-
-// HandlePreviewPage processes markdown safely for the Admin editor
-func HandlePreviewPage() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var req PagePreviewRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid payload", http.StatusBadRequest)
-			return
-		}
-
-		safeContent := sanitizeTemplate(req.Content, true, "", "")
-		
-		// Pass nil data since we already injected the strings safely
-		renderedHTML, err := markdown.RenderGFM(safeContent, nil) 
-		if err != nil {
-			http.Error(w, "Markdown render failed", http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"html_content": renderedHTML,
-		})
-	}
-}
-
 // HandleGetPublicPage returns fully rendered HTML, requiring no auth
 func HandleGetPublicPage(database *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := chi.URLParam(r, "slug")
-		
-		// 1. Extract optional URL parameters
 		query := r.URL.Query()
-		urlUsername := query.Get("username")
-		urlEmail := query.Get("email")
-		
+
 		var page db.Page
 		if err := database.Where("slug = ?", slug).First(&page).Error; err != nil {
 			http.Error(w, "Page not found", http.StatusNotFound)
 			return
 		}
 
-		// 2. Pass the extracted params to the sanitizer
-		safeContent := sanitizeTemplate(page.Content, false, urlUsername, urlEmail)
-		renderedHTML, _ := markdown.RenderGFM(safeContent, nil)
+		username := query.Get("username")
+		if username == "" {
+			username = "[Your Username]"
+		}
+
+		email := query.Get("email")
+		if email == "" {
+			email = "[Your Email]"
+		}
+
+		var servers []markdown.ServerInfo
+		for _, paramVal := range query["server"] {
+			var srv db.TargetServer
+			if err := database.Where("name = ?", paramVal).First(&srv).Error; err == nil {
+				servers = append(servers, markdown.ServerInfo{Name: srv.Name, Address: srv.Address})
+			} else {
+				servers = append(servers, markdown.ServerInfo{Name: "Server", Address: paramVal})
+			}
+		}
+
+		if len(servers) == 0 {
+			servers = append(servers, markdown.ServerInfo{Name: "Assigned Server", Address: "[Server's IP/Hostname]"})
+		}
+
+		templateData := markdown.OnboardingTemplateData{
+			Username:  username,
+			Email:     email,
+			GiteaURL:  config.App.GiteaExternalURL,
+			SystemURL: config.App.BaseURL,
+			Servers:   servers,
+		}
+
+		renderedHTML, err := markdown.RenderGFM(page.Content, templateData)
+		if err != nil {
+			http.Error(w, "Template Error", http.StatusInternalServerError)
+			return
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
