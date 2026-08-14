@@ -37,7 +37,8 @@
             formFields = Object.entries(vars).map(([name, type]) => ({
                 name,
                 type,
-                value: (type === 'bool' || type === 'boolean' ? 'false' : '')
+                value: (type === 'bool' || type === 'boolean' ? 'false' : ''),
+                confirmValue: ''
             }));
 
         } catch (err) {
@@ -85,9 +86,15 @@
 
     async function handleSetup(e) {
         e.preventDefault();
-        isLoading = true;
         submitMsg = '';
-
+        for (const f of formFields) {
+            if (f.type === 'secret' && f.value !== f.confirmValue) {
+                submitMsg = `Passwords do not match for "${f.name.replace(/_/g, ' ')}". Please try again.`;
+                return; // Abort submission
+            }
+        }
+        
+        isLoading = true;
         // Rebuild dictionary for Go Backend
         const finalUserInputs = {};
         formFields.forEach(f => {
@@ -186,7 +193,9 @@
                                 <label class="label"><span class="label-text font-bold capitalize">{field.name.replace(/_/g, ' ')}</span></label>
                                 
                                 {#if field.type === 'secret'}
-                                    <input type="password" bind:value={field.value} required class="input input-bordered input-primary w-full" />
+                                    <input type="password" bind:value={field.value} required class="input input-bordered input-primary w-full" placeholder="Enter {field.name.replace(/_/g, ' ')}" />
+                                    <label class="label mt-2"><span class="label-text font-bold capitalize">Confirm {field.name.replace(/_/g, ' ')}</span></label>
+                                    <input type="password" bind:value={field.confirmValue} required class="input input-bordered input-primary w-full" placeholder="Confirm {field.name.replace(/_/g, ' ')}" />
                                     
                                 {:else if field.type === 'textarea'}
                                     <textarea bind:value={field.value} required rows="4" class="textarea textarea-bordered textarea-primary font-mono text-sm leading-relaxed"></textarea>
