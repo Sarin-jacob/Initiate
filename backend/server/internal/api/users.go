@@ -14,7 +14,12 @@ import (
 // UserWithAccess bundles the core user profile with their target provisions
 type UserWithAccess struct {
 	db.User
-	AccessList []db.UserAccess `json:"access_list"`
+	AccessList []EnrichedUserAccess `json:"access_list"` // Changed to enriched array
+}
+
+type EnrichedUserAccess struct {
+	db.UserAccess
+	TargetName string `json:"TargetName"`
 }
 
 type UpdateExpiryRequest struct {
@@ -32,6 +37,13 @@ func HandleListUsers(database *gorm.DB) http.HandlerFunc {
 			return
 		}
 
+		var servers []db.TargetServer
+		database.Find(&servers)
+		serverMap := make(map[string]string)
+		for _, s := range servers {
+			serverMap[s.ID] = s.Name
+		}
+
 		var accesses []db.UserAccess
 		if err := database.Find(&accesses).Error; err != nil {
 			http.Error(w, "Failed to fetch user access matrix", http.StatusInternalServerError)
@@ -39,9 +51,16 @@ func HandleListUsers(database *gorm.DB) http.HandlerFunc {
 		}
 
 		// Map accesses to their respective User ID
-		accessMap := make(map[string][]db.UserAccess)
+		accessMap := make(map[string][]EnrichedUserAccess)
 		for _, acc := range accesses {
-			accessMap[acc.UserID] = append(accessMap[acc.UserID], acc)
+			name := serverMap[acc.TargetID]
+			if name == "" { name = acc.TargetID[:8] } // Fallback
+
+			enriched := EnrichedUserAccess{
+				UserAccess: acc,
+				TargetName: name,
+			}
+			accessMap[acc.UserID] = append(accessMap[acc.UserID], enriched)
 		}
 
 		// Build the final response array
