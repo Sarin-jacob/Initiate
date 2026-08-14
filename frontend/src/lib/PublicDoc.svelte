@@ -9,25 +9,17 @@
 
     onMount(async () => {
         try {
-            // We use the markdown preview endpoint to convert the raw content to HTML safely
+            // 1. Grab all parameters from the user's browser URL
             const urlParams = new URLSearchParams(window.location.search);
-            const username = urlParams.get('username');
-            const email = urlParams.get('email');
             
-            
-            // 2. Build the API URL dynamically
+            // 2. Build the API URL and append the exact same parameters
             let apiUrl = `/api/docs/${slug}`;
-            const apiParams = new URLSearchParams();
-            
-            if (username) apiParams.append('username', username);
-            if (email) apiParams.append('email', email);
-            
-            const queryString = apiParams.toString();
+            const queryString = urlParams.toString();
             if (queryString) {
                 apiUrl += `?${queryString}`;
             }
 
-            // 3. Fetch the content using the appended query string
+            // 3. Fetch with the forwarded context
             const renderRes = await fetch(apiUrl);
             if (!renderRes.ok) throw new Error("Document not found");
 
@@ -41,6 +33,7 @@
             isLoading = false;
         }
     });
+
 </script>
 
 <div class="min-h-screen bg-base-200 p-4 md:p-8 flex justify-center items-start">
