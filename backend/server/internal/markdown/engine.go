@@ -12,6 +12,12 @@ import (
 	"github.com/yuin/goldmark/renderer/html"
 )
 
+// ServerInfo makes target data accessible to templates via {{range .Servers}}
+type ServerInfo struct {
+	Name    string
+	Address string 
+}
+
 // OnboardingTemplateData defines variables for Markdown injection
 type OnboardingTemplateData struct {
 	Username  string
@@ -20,6 +26,7 @@ type OnboardingTemplateData struct {
 	SystemURL string
 	Token     string // NEW: Pass token so admins can hyperlink between pages: /invite/{{.Token}}/page/ssh
 	InviteURL string
+	Servers   []ServerInfo
 }
 
 func RenderGFM(rawMarkdown string, data interface{}) (string, error) {
