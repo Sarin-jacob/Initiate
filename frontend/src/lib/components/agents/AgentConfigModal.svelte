@@ -1,14 +1,15 @@
 <script>
     import { createEventDispatcher } from 'svelte';
     export let macros = [];
-    
+
     const dispatch = createEventDispatcher();
     const headers = { 
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + localStorage.getItem('nexus_jwt') 
-                };
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + localStorage.getItem('nexus_jwt') 
+    };
 
     let activeServer = null;
+    let configAddress = ''; // NEW
     let configProvId = '';
     let configSoftDeprovId = '';
     let configHardDeprovId = '';
@@ -16,6 +17,7 @@
 
     export function open(server) {
         activeServer = server;
+        configAddress = server.Address || ''; // NEW
         configProvId = server.ProvisionMacroID || '';
         configSoftDeprovId = server.SoftDeprovisionMacroID || '';
         configHardDeprovId = server.HardDeprovisionMacroID || '';
@@ -33,6 +35,7 @@
             const res = await fetch(`/api/admin/servers/${activeServer.ID}/config`, {
                 method: 'PUT', headers,
                 body: JSON.stringify({
+                    address: configAddress, // NEW
                     provision_macro_id: configProvId,
                     soft_deprovision_macro_id: configSoftDeprovId,
                     hard_deprovision_macro_id: configHardDeprovId
@@ -49,9 +52,16 @@
 <dialog id="modal_agent_config" class="modal">
     <div class="modal-box">
         <h3 class="font-bold text-lg mb-4">Configure {activeServer?.Name}</h3>
-        <p class="text-sm opacity-70 mb-6">Assign the pipelines this agent should run when a user is granted or revoked access.</p>
         
         <div class="space-y-4">
+            <div class="form-control mb-4">
+                <label class="label"><span class="label-text font-bold">Network Address (IP/Hostname)</span></label>
+                <input type="text" bind:value={configAddress} class="input input-bordered w-full font-mono" placeholder="e.g. 192.168.1.50" />
+                <label class="label"><span class="label-text-alt opacity-70">This value is injected into markdown documentation variables.</span></label>
+            </div>
+
+            <div class="divider">Pipeline Assignments</div>
+
             <div class="form-control">
                 <label class="label"><span class="label-text font-bold text-success">Onboarding Macro</span></label>
                 <select bind:value={configProvId} class="select select-bordered w-full">
@@ -59,7 +69,7 @@
                     {#each macros as m}<option value={m.ID}>{m.Name}</option>{/each}
                 </select>
             </div>
-            
+
             <div class="form-control">
                 <label class="label"><span class="label-text font-bold text-warning">Soft Deprovision Macro</span></label>
                 <select bind:value={configSoftDeprovId} class="select select-bordered w-full">
@@ -79,7 +89,7 @@
             </div>
         </div>
 
-        <div class="modal-action">
+        <div class="modal-action mt-6">
             <button class="btn btn-ghost" on:click={close}>Cancel</button>
             <button class="btn btn-primary" on:click={saveConfig} disabled={isSaving}>
                 {#if isSaving} <span class="loading loading-spinner loading-sm"></span> {/if} Save Configuration
