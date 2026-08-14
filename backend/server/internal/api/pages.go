@@ -207,3 +207,50 @@ func HandleGetPublicPage(database *gorm.DB) http.HandlerFunc {
 		})
 	}
 }
+
+// HandleDeletePage safely removes a documentation/markdown page
+func HandleDeletePage(database *gorm.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		slug := chi.URLParam(r, "slug")
+
+		// Edge Case 1: Empty slug
+		if slug == "" {
+			http.Error(w, "Slug parameter is missing", http.StatusBadRequest)
+			return
+		}
+
+		// Edge Case 2: Ensure the page actually exists
+		var page db.Page
+		if err := database.Where("slug = ?", slug).First(&page).Error; err != nil {
+			http.Error(w, "Page not found", http.StatusNotFound)
+			return
+		}
+
+		// Precaution: Check if this page is actively used in System Settings
+		// We don't want admins breaking the onboarding flow by deleting active email/invite templates.
+		var activeSettings []db.SystemSetting
+		database.Where("value = ? AND key IN ?", slug, []string{
+			"default_invite_slug", 
+			"default_email_slug", 
+			"welcome_email_slug",
+		}).Find(&activeSettings)
+		
+		if len(activeSettings) > 0 {
+			http.Error(w, "Cannot delete page: It is currently set as an active system template in your settings. Please change the system setting first.", http.StatusConflict)
+			return
+		}
+
+		// Proceed with deletion
+		if err := database.Delete(&page).Error; err != nil {
+			http.Error(w, "Failed to delete page", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"status": "success",
+			"message": "Page deleted successfully",
+		})
+	}
+}

@@ -39,6 +39,7 @@ func NewRouter(
         r.Get("/pages", HandleListPages(database))
         r.Post("/pages", HandleSavePage(database))
         r.Post("/pages/preview", HandlePreviewPage())
+        r.Delete("/pages/{slug}",HandleDeletePage(database))
         
         // Stubs for future implementation
         r.Get("/servers", HandleListServers(database))
