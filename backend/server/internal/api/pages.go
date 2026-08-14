@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -41,6 +42,12 @@ func HandleSavePage(database *gorm.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req SavePageRequest
 		json.NewDecoder(r.Body).Decode(&req)
+
+		slugRegex := regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+		if !slugRegex.MatchString(req.Slug) {
+			http.Error(w, "Invalid slug format. Use only letters, numbers, dashes, and underscores.", http.StatusBadRequest)
+			return
+		}
 
 		var page db.Page
 		if err := database.Where("slug = ?", req.Slug).First(&page).Error; err != nil {
