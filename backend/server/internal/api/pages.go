@@ -171,12 +171,12 @@ func HandleGetPublicPage(database *gorm.DB) http.HandlerFunc {
 
 		username := query.Get("username")
 		if username == "" {
-			username = "[Your Username]"
+			username = "<your_username>"
 		}
 
 		email := query.Get("email")
 		if email == "" {
-			email = "[Your Email]"
+			email = "<your_email>"
 		}
 
 		var servers []markdown.ServerInfo
@@ -190,7 +190,7 @@ func HandleGetPublicPage(database *gorm.DB) http.HandlerFunc {
 		}
 
 		if len(servers) == 0 {
-			servers = append(servers, markdown.ServerInfo{Name: "Assigned Server", Address: "[Server's IP/Hostname]"})
+			servers = append(servers, markdown.ServerInfo{Name: "Assigned-Server", Address: "<Server's IP/Hostname>"})
 		}
 
 		templateData := markdown.OnboardingTemplateData{
