@@ -5,7 +5,7 @@
     const dispatch = createEventDispatcher();
     const headers = { 
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + localStorage.getItem('nexus_jwt') 
+        'Authorization': 'Bearer ' + sessionStorage.getItem('nexus_jwt') 
     };
 
     let activeServer = null;

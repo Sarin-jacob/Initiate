@@ -15,7 +15,7 @@
     let selectedAction = '';
     let isSaving = false;
 
-    const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + localStorage.getItem('nexus_jwt') };
+    const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + sessionStorage.getItem('nexus_jwt') };
 
     onMount(fetchData);
 

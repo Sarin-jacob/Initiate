@@ -1,14 +1,15 @@
 <script>
-    import { onMount } from 'svelte';
+    import { onMount, onDestroy } from 'svelte';
     import AgentConfigModal from '../components/agents/AgentConfigModal.svelte';
 
     let servers = [];
     let macros = [];
     let configModalRef;
+    let pollInterval;
 
     const getHeaders = () => ({ 
             'Content-Type': 'application/json', 
-            'Authorization': 'Bearer ' + localStorage.getItem('nexus_jwt') 
+            'Authorization': 'Bearer ' + sessionStorage.getItem('nexus_jwt') 
         });
 
     async function fetchData() {
@@ -22,7 +23,17 @@
         } catch (err) { console.error("Fetch failed", err); }
     }
 
-    onMount(fetchData);
+    onMount(()=>{
+        fetchData();
+        pollInterval = setInterval(() => {
+            fetchData();
+        }, 60000);
+        
+    });
+
+    onDestroy(() => {
+        if (pollInterval) clearInterval(pollInterval);
+    });
 
     async function handleAddServer(e) {
         e.preventDefault();

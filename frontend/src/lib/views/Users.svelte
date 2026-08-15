@@ -1,5 +1,5 @@
 <script>
-    import { onMount } from 'svelte';
+    import { onMount, onDestroy } from 'svelte';
     import UserTable from '../components/users/UserTable.svelte';
     import ActionModals from '../components/users/ActionModals.svelte';
     import ProvisionModal from '../components/users/ProvisionModal.svelte'
@@ -9,12 +9,13 @@
     let macros = []; 
     let pages = [];
     let giteaUrl = ""; 
+    let pollInterval;
     
     let modalsRef; // Reference to our ActionModals component
 
     const getHeaders = () => ({ 
             'Content-Type': 'application/json', 
-            'Authorization': 'Bearer ' + localStorage.getItem('nexus_jwt') 
+            'Authorization': 'Bearer ' + sessionStorage.getItem('nexus_jwt') 
         });
 
     async function fetchData() {
@@ -39,7 +40,16 @@
         } catch (err) { console.error("Failed to load data", err); }
     }
 
-    onMount(fetchData);
+    onMount(()=>{
+        fetchData();
+        pollInterval = setInterval(() => {
+            fetchData();
+        }, 60000);
+    });
+
+    onDestroy(() => {
+        if (pollInterval) clearInterval(pollInterval);
+    });
 
     // Handles the custom event dispatched by UserTable.svelte
     function handleAction(event) {

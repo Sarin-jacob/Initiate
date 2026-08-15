@@ -15,18 +15,25 @@
     const inviteToken = urlParams.get('token');
     const docSlug = urlParams.get('docs');
 
-    let currentView = 'users'; 
+    // FIX: Initialize directly from sessionStorage to beat the reactive statement!
+    let currentView = sessionStorage.getItem('nexus_active_view') || 'users'; 
     let isAppReady = false;
     let isAuthenticated = false; 
 
     let systemTheme = localStorage.getItem('nexus_theme') || 'corporate';
     let cmsDocs = []; 
 
+    // Apply theme (Keep this in localStorage so theme persists across browser restarts)
     $: {
         if (typeof window !== 'undefined') {
             localStorage.setItem('nexus_theme', systemTheme);
             document.documentElement.setAttribute('data-theme', systemTheme);
         }
+    }
+
+    // Safely save the current view whenever it changes
+    $: if (currentView) {
+        sessionStorage.setItem('nexus_active_view', currentView);
     }
 
     onMount(async () => {
@@ -36,17 +43,15 @@
             return;
         }
 
-        // 2. Admin Routes: Check if they already have a token
-        const token = localStorage.getItem('nexus_jwt');
+        // 2. Admin Routes: Check sessionStorage instead of localStorage
+        const token = sessionStorage.getItem('nexus_jwt');
         if (token) {
             await loadAdminData(token);
         } else {
-            // No token? They must log in.
             isAppReady = true;
         }
     });
 
-    // Helper to fetch initial secure data
     async function loadAdminData(token) {
         try {
             const headers = { 'Authorization': 'Bearer ' + token };
@@ -57,13 +62,13 @@
             ]);
             
             if (setRes.ok) {
-                isAuthenticated = true; // Token is valid!
+                isAuthenticated = true; 
                 const data = await setRes.json();
                 if (data.theme && data.theme !== systemTheme) systemTheme = data.theme;
                 if (pagesRes.ok) cmsDocs = await pagesRes.json() || [];
             } else {
-                // Token is invalid or expired
-                localStorage.removeItem('nexus_jwt');
+                // Token invalid: Clear from sessionStorage
+                sessionStorage.removeItem('nexus_jwt');
                 isAuthenticated = false;
             }
         } catch (err) { 
@@ -73,10 +78,10 @@
         }
     }
 
-    // Triggered when Login.svelte fires its 'success' event
     function onLoginSuccess() {
-        isAppReady = false; // Show loading skeleton while fetching data
-        const token = localStorage.getItem('nexus_jwt');
+        isAppReady = false; 
+        // Read from sessionStorage after successful login
+        const token = sessionStorage.getItem('nexus_jwt');
         loadAdminData(token);
     }
 
@@ -91,7 +96,6 @@
 
 <div class="min-h-screen bg-base-200 text-base-content font-sans">
     {#if !isAppReady}
-        <!-- Loading Skeleton -->
         <div class="p-10 space-y-4 max-w-7xl mx-auto mt-10">
             <div class="skeleton h-12 w-64"></div>
             <div class="skeleton h-64 w-full"></div>
@@ -105,11 +109,9 @@
         <PublicDoc slug={docSlug} />
         
     {:else if !isAuthenticated}
-        <!-- PROPER LOGIN ROUTING -->
         <Login on:success={onLoginSuccess} />
         
     {:else}
-        <!-- SECURE ADMIN DASHBOARD -->
         <div class="drawer lg:drawer-open">
             <input id="admin-drawer" type="checkbox" class="drawer-toggle" />
             <div class="drawer-content flex flex-col">
@@ -145,9 +147,6 @@
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                             </button>
                         </div>
-                        
-                        <!-- ADD LOGOUT BUTTON HERE LATER IF YOU WANT IT -->
-                        
                     </div>
                 </div>
                 
